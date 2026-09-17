@@ -45,9 +45,9 @@ bool Application::initWindow() {
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO(); io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-    ImGui::StyleColorsDark();
-    ImGui::GetStyle().WindowRounding = 4.0f;
+    ImGuiIO& io = ImGui::GetIO(); io.IniFilename = nullptr; // fixed shell layout - nothing to persist
+    float xs = 1.0f, ys = 1.0f; if (!opts_.headless) glfwGetWindowContentScale(window_, &xs, &ys);
+    initPanels(*this, std::max(1.0f, xs) * opts_.uiScale);
     ImGui_ImplGlfw_InitForOpenGL(window_, true);
     ImGui_ImplOpenGL3_Init(glIsES() ? "#version 300 es" : "#version 330 core");
     return true;
@@ -70,6 +70,7 @@ int Application::run() {
         if (opts_.renderFrames <= 0) glfwSetWindowShouldClose(window_, 1);
     }
     if (opts_.live) toggleLive();
+    if (opts_.startStep >= 0) setStep(opts_.startStep);
     lastFrameTime_ = glfwGetTime();
     if (opts_.renderFrames > 0) {
         // Offscreen proof-of-render: step through the clip deterministically and dump frames.
@@ -113,14 +114,13 @@ void Application::frame() {
     }
 
     ImGui_ImplOpenGL3_NewFrame(); ImGui_ImplGlfw_NewFrame(); ImGui::NewFrame();
-    ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
     handleViewportInput();
     drawPanels(*this);
     drawOverlayLabels(*this);
     ImGui::Render();
 
     glViewport(0, 0, fbSize_.x, fbSize_.y);
-    glClearColor(0.11f, 0.12f, 0.14f, 1.0f);
+    glClearColor(0.235f, 0.235f, 0.235f, 1.0f); // viewport grey (theme::kViewportBg)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     if (!glIsES()) glEnable(GL_MULTISAMPLE);
     drawScene();
@@ -169,8 +169,8 @@ void Application::handleViewportInput() {
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Y)) redo();
         if (ImGui::IsKeyPressed(ImGuiKey_Delete) && selectedPoint >= 0) { pushUndo(); pipe.rig.removeControlPoint(selectedPoint); selectedPoint = -1; }
     }
-    if (io.WantCaptureMouse && !dragging_) return;
     double mx, my; glfwGetCursorPos(window_, &mx, &my);
+    if ((io.WantCaptureMouse || !viewportContains(float(mx), float(my))) && !dragging_) return;
     glm::dvec2 mouse(mx, my), delta = mouse - lastMouse_; lastMouse_ = mouse;
     bool lmb = glfwGetMouseButton(window_, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
     bool rmb = glfwGetMouseButton(window_, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
@@ -303,6 +303,7 @@ void Application::loadModel(const std::string& path) {
     std::string err;
     if (!pipe.loadModel(path, &err)) { status = "Model load failed: " + err; return; }
     pipe.buildDefaultRig();
+    notifyModelLoaded(true); notifyRigBuilt();
     reuploadMesh();
     camera.target = 0.5f * (pipe.rig.mesh.boundsMin() + pipe.rig.mesh.boundsMax());
     camera.distance = 2.2f * glm::length(pipe.rig.mesh.boundsMax() - pipe.rig.mesh.boundsMin());
@@ -319,7 +320,7 @@ void Application::loadAudio(const std::string& path) {
 
 void Application::generate() {
     if (pipe.audio.samples.empty()) loadAudio("");
-    if (pipe.generateAnimation()) { playing = true; playTime = 0.0f; status = pipe.log.back(); }
+    if (pipe.generateAnimation()) { playing = true; playTime = 0.0f; status = pipe.log.back(); notifyClipGenerated(); }
 }
 
 void Application::exportNow(const std::string& path, const std::vector<std::string>& variationTexts) {

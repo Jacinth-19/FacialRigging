@@ -32,6 +32,8 @@ public:
         std::string modelPt;              ///< TorchScript for the ML mapper
         std::string upAxis = "auto";      ///< auto|y|z for imported OBJ
         bool live = false;                ///< start microphone capture on launch
+        float uiScale = 1.0f;             ///< extra UI scale on top of the monitor content scale
+        int startStep = -1;               ///< wizard step to open (0..4), -1 = automatic
     };
     explicit Application(Options o) : opts_(std::move(o)) {}
     int run();

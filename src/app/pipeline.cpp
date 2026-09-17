@@ -78,6 +78,24 @@ bool Pipeline::loadModel(const std::string& path, std::string* error) {
     return true;
 }
 
+void Pipeline::transformModel(const glm::mat3& R) {
+    Mesh m = rig.mesh;
+    if (m.positions.empty()) return;
+    glm::vec3 lo = m.boundsMin(), hi = m.boundsMax(); float extBefore = std::max({hi.x - lo.x, hi.y - lo.y, hi.z - lo.z});
+    for (auto& p : m.positions) p = R * p;
+    for (auto& n : m.normals) n = glm::normalize(R * n);
+    m.normalizeToUnit();
+    lo = m.boundsMin(); hi = m.boundsMax(); float extAfter = std::max({hi.x - lo.x, hi.y - lo.y, hi.z - lo.z});
+    float k = extAfter > 1e-9f ? extAfter / extBefore : 1.0f; // normaliseToUnit scale change
+    for (auto& bs : authoredShapes_) for (auto& d : bs.deltas) d = k * (R * d);
+    rig.setMesh(m);
+}
+
+void Pipeline::translateModel(const glm::vec3& d) {
+    for (auto& p : rig.mesh.positions) p += d;
+    Mesh m = rig.mesh; rig.setMesh(m);
+}
+
 void Pipeline::buildDefaultRig() {
     rig.buildDefaultFaceRig();
     if (!authoredShapes_.empty()) {

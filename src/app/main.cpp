@@ -25,9 +25,11 @@ int main(int argc, char** argv) {
         else if (a == "--model-pt") o.modelPt = next();
         else if (a == "--up") o.upAxis = next();
         else if (a == "--live") o.live = true;
+        else if (a == "--ui-scale") o.uiScale = std::stof(next());
+        else if (a == "--step") o.startStep = std::stoi(next());
         else if (a == "-h" || a == "--help") {
             std::puts("facial_rigging [--model face.obj] [--audio speech.wav] [--generate] [--export out/scene.fbx]\n"
-                      "               [--variation \"Increase smile\"]... [--size WxH] [--mapper rules|ml] [--model-pt model.pt] [--up auto|y|z] [--live]\n"
+                      "               [--variation \"Increase smile\"]... [--size WxH] [--mapper rules|ml] [--model-pt model.pt] [--up auto|y|z] [--live] [--ui-scale F] [--step 0-4]\n"
                       "               [--headless] [--gles] [--render-frames N] [--frame-pattern out/frame_%03d.ppm]\n"
                       "  --headless: no window; GLFW null platform + EGL pbuffer (needs libEGL/libGLESv2 on the library path,\n"
                       "              e.g. SwiftShader or Mesa). Combine with --render-frames to dump rendered frames.");

@@ -251,7 +251,8 @@ void Rig::buildDefaultFaceRig() {
         // With a real inner mouth the jaw pivot sits at the condyle: level with the ear canal,
         // roughly at the back third of the head.
         glm::vec3 tlo, thi; mesh.partBounds(parts.teethLower >= 0 ? parts.teethLower : parts.face, tlo, thi);
-        skeleton.bones[1].bindTranslation = glm::vec3(0.0f, (0.5f * (tlo.y + thi.y) + 0.10f * H) - lo.y, centre.z - 0.12f * D - centre.z);
+        // pivot: slightly above the lower-teeth top, at ~35% depth from the back of the head
+        skeleton.bones[1].bindTranslation = glm::vec3(0.0f, (thi.y + 0.05f * H) - lo.y, (lo.z + 0.35f * D) - centre.z);
     }
 
     // --- procedural blendshapes

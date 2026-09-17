@@ -1,8 +1,11 @@
 # FacialRigging
 
 Interactive, audio-driven facial animation tool in C++17 / OpenGL 3.3 with control-point rigging,
-GPU skinning + blendshapes, a rule-based lip-sync generator, and glTF/FBX export. Includes a
-headless CLI and an Arena-agent task runner.
+GPU skinning + blendshapes, rule-based **and trained** lip-sync viseme mapping, live microphone
+input, and glTF/FBX export. Ships with an ICT-FaceKit head (separated brows/eyes/teeth/tongue,
+53 blendshapes), an AccuRIG-style step-wizard UI, a headless CLI and an Arena-agent task runner.
+
+![Check Model step](docs/images/ui_check_model.png)
 
 
 ## Build
@@ -11,14 +14,16 @@ headless CLI and an Arena-agent task runner.
 git clone --recursive <repo>            # or: git submodule update --init
 cmake -S . -B build -G Ninja            # -DFR_BUILD_APP=OFF for headless-only
 cmake --build build
-ctest --test-dir build                  # 25 unit tests
+ctest --test-dir build                  # 31 unit tests
 ```
 
 Dependencies are vendored as submodules (GLFW, Dear ImGui, glm, Catch2, **Assimp**, **PortAudio**;
 see `third_party/patches` for two small local patches). On Linux the GUI needs X11 dev headers
 (`libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev`) for a window; without them
-the app still builds (GLFW null platform) and runs **headless** (see below). PortAudio uses ALSA
-when `libasound2-dev` is present, else OSS.
+the app still builds (GLFW null platform) and runs **headless** (see below). PortAudio is built
+against the vendored **alsa-lib** submodule headers (`cmake/FindALSA.cmake`), so the ALSA host API
+is always compiled in; at run time it needs `libasound.so.2` (any Linux desktop has it) and falls
+back to OSS otherwise. `fr_cli --list-devices` prints the host APIs that were compiled/found.
 
 | CMake option | Default | Effect |
 |---|---|---|
@@ -37,7 +42,10 @@ build/facial_rigging --model assets/sample_head.obj --audio assets/sample_speech
 build/facial_rigging --model assets/models/nefertiti.obj --generate     # real scanned head (see assets/models/README.md)
 build/fr_cli --output out/scene --format fbx --variations 2       # headless CLI, real FBX
 build/fr_cli --model assets/models/igea.obj --mapper ml --output out/igea --format fbx   # LibTorch mapper (FR_WITH_TORCH)
-build/fr_cli --list-devices                                        # PortAudio inputs
+build/facial_rigging --model assets/models/ict_face/ict_face.obj --generate   # ICT-FaceKit head, 53 authored shapes
+build/fr_cli --list-devices                                        # PortAudio inputs (+ built-in test-signal device -2)
+build/fr_cli --live-test -2 2                                      # live pipeline on the synthetic mic for 2 s
+build/fr_train_visemes --data /tmp/timit --out assets/models/viseme_mlp.frvm  # retrain the viseme MLP
 python3 tools/run_arena_task.py tools/arena_task.yaml            # agent task
 ```
 
@@ -55,9 +63,45 @@ renderer and Dear ImGui run unchanged (shaders are written for GL 3.3 core *and*
 `--render-frames N` steps through the generated clip and dumps N frames, which is how the
 screenshots in `docs/images/` were produced inside a CPU-only container.
 
-GUI: **Q** orbit, **W** add control point (click on mesh), **E** move point (drag handle),
-**Space** play/pause, **Ctrl+Z/Y** undo/redo. Panels: Control Points, Rig (blendshape sliders,
-bone pose), Audio & Animation (waveform, lip-sync settings, scrub, curves), Export.
+### UI (AccuRIG-style workflow)
+
+The shell follows Reallusion AccuRIG's layout: dark chrome, lime accent, Inter font
+(`assets/fonts`), a **left step column**, the viewport with a vertical tool strip, and a **right
+property page** for the active step. Steps:
+
+| # | Step | What it does |
+|---|---|---|
+| 1 | **Load Face** | OBJ path or bundled heads (ICT-FaceKit, scans, procedural); `<model>.fbs` blendshapes are picked up automatically |
+| 2 | **Check Model** | Orientation fix *before* rigging: rotate ±90°/180° about X/Y/Z, mirror, auto-detect Z-up, centre-line slider (viewport shows the line), OK/!! checks for "Y up / +Z front / centred". **Rig Face** button proceeds |
+| 3 | **Face Rig** | Tabs: Handles (control points: add/move/bind), Blendshapes (canonical + authored), Bones, Parts (which part follows the Jaw) |
+| 4 | **Lip-sync** | Audio file or Microphone tab, rule-based vs trained-MLP mapper, generator settings, **Generate Animation** |
+| 5 | **Check Animation** | Transport, curves, export path/variations, **Export…** modal (FBX / glb / glTF / pose) and log |
+
+Keys: **Q** orbit, **W** add control point, **E** move point, **Space** play/pause, **Ctrl+Z/Y**
+undo/redo. `--step N` opens a given step, `--ui-scale F` scales the UI.
+
+| Face Rig | Check Animation |
+|---|---|
+| ![](docs/images/ui_face_rig.png) | ![](docs/images/ui_check_animation.png) |
+
+### Test model: ICT-FaceKit head
+
+`assets/models/ict_face/` is the ICT-FaceKit generic neutral (MIT-style licence, see
+`LICENSE-ICT-FaceKit.txt`) exported by `tools/prepare_ict_facekit.py` as an OBJ with **13 `g`
+groups** (Face, EyebrowL/R, EyeL/R, Eyelashes, EyeShadow, TeethUpper/Lower, GumsUpper/Lower,
+Tongue, BackHead) plus `ict_face.fbs`, a compact sparse container with all **53 expression
+blendshapes**. The rig binds lower teeth/gums/tongue rigidly to the Jaw bone, upper teeth/eyes/brows
+to the head, and merges the ARKit-style shapes (`jawOpen`, `mouthSmile_L/R`, `browInnerUp`, …) into
+the canonical shapes the generator drives; every source shape is also exposed by name.
+
+### Trained viseme mapper
+
+`assets/models/viseme_mlp.frvm` is **trained** (not hand-set) by `fr_train_visemes` on TIMIT
+phone alignments: 270 utterances / 30 speakers, features from the app's own `FeatureExtractor`
+(17-dim frame vector × 5-frame context), MLP 85-48-48-9 with Adam, class-balanced cross-entropy.
+Speaker-disjoint held-out frame accuracy **66.7 %** (majority-class baseline 39.6 %); confusion
+matrix in `assets/models/viseme_mlp.train.log`. The `.frvm` format is plain C++ so the trained
+model runs in every build; `FR_WITH_TORCH` additionally allows TorchScript `.pt` models.
 
 ## Layout
 

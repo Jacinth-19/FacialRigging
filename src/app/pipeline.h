@@ -52,6 +52,11 @@ private:
     std::vector<BlendShape> authoredShapes_;
 public: ///< empty path -> procedural head
     void buildDefaultRig();
+    /// Check-Model step: rotate / mirror / offset the loaded model (and its authored blendshapes)
+    /// before rigging. `R` is applied about the model centre; the mesh is re-normalised afterwards.
+    void transformModel(const glm::mat3& R);
+    void translateModel(const glm::vec3& d);
+    void resetModel() { transformModel(glm::mat3(1.0f)); }
     bool loadAudio(const std::string& path, std::string* error = nullptr);  ///< empty path -> synthetic speech
     bool generateAnimation();
     /// Exports `clip` plus one file per variation using `outputPattern` (e.g. "scene" -> scene.glb, scene_var1_*.glb).

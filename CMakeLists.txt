@@ -252,7 +252,8 @@ if(FR_BUILD_APP)
     src/render/shader.cpp
     src/render/mesh_renderer.cpp
     src/render/gizmo_renderer.cpp
-    src/ui/panels.cpp)
+    src/ui/panels.cpp
+    src/ui/theme.cpp)
   target_link_libraries(facial_rigging PRIVATE fr_core imgui glfw fr_warnings)
   target_compile_definitions(facial_rigging PRIVATE
     FR_SHADER_DIR="${CMAKE_SOURCE_DIR}/shaders"

@@ -17,8 +17,10 @@ cmake --build build
 ctest --test-dir build                  # 31 unit tests
 ```
 
-Dependencies are vendored as submodules (GLFW, Dear ImGui, glm, Catch2, **Assimp**, **PortAudio**;
-see `third_party/patches` for two small local patches). On Linux the GUI needs X11 dev headers
+Dependencies are vendored as submodules (GLFW, Dear ImGui, glm, Catch2, **Assimp**, **PortAudio**,
+**alsa-lib** headers, **Material Icons**; see `third_party/patches` for two small local patches).
+`python3` is needed at build time (it unpacks the Material Icons webfont and generates the icon
+codepoint header from the submodule). On Linux the GUI needs X11 dev headers
 (`libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev`) for a window; without them
 the app still builds (GLFW null platform) and runs **headless** (see below). PortAudio is built
 against the vendored **alsa-lib** submodule headers (`cmake/FindALSA.cmake`), so the ALSA host API
@@ -66,13 +68,14 @@ screenshots in `docs/images/` were produced inside a CPU-only container.
 ### UI (AccuRIG-style workflow)
 
 The shell follows Reallusion AccuRIG's layout: dark chrome, lime accent, Inter font
-(`assets/fonts`), a **left step column**, the viewport with a vertical tool strip, and a **right
-property page** for the active step. Steps:
+(`assets/fonts`), **Material Icons** (Google, Apache-2.0, `third_party/material-icons`; merged
+into every ImGui font so `ICON_MD_*` strings render inline), a **left step column**, the viewport
+with a vertical tool strip, and a **right property page** for the active step. Steps:
 
 | # | Step | What it does |
 |---|---|---|
 | 1 | **Load Face** | OBJ path or bundled heads (ICT-FaceKit, scans, procedural); `<model>.fbs` blendshapes are picked up automatically |
-| 2 | **Check Model** | Orientation fix *before* rigging: rotate ±90°/180° about X/Y/Z, mirror, auto-detect Z-up, centre-line slider (viewport shows the line), OK/!! checks for "Y up / +Z front / centred". **Rig Face** button proceeds |
+| 2 | **Check Model** | Orientation fix *before* rigging: rotate ±90°/180° about X/Y/Z, mirror, auto-detect Z-up, centre-line slider (viewport shows the line), ✓/⚠ checks for "Y up / +Z front / centred", **Force Symmetry** (dragging BrowL also moves BrowR mirrored). **Rig Face** button proceeds |
 | 3 | **Face Rig** | Tabs: Handles (control points: add/move/bind), Blendshapes (canonical + authored), Bones, Parts (which part follows the Jaw) |
 | 4 | **Lip-sync** | Audio file or Microphone tab, rule-based vs trained-MLP mapper, generator settings, **Generate Animation** |
 | 5 | **Check Animation** | Transport, curves, export path/variations, **Export…** modal (FBX / glb / glTF / pose) and log |
@@ -96,11 +99,13 @@ the canonical shapes the generator drives; every source shape is also exposed by
 
 ### Trained viseme mapper
 
-`assets/models/viseme_mlp.frvm` is **trained** (not hand-set) by `fr_train_visemes` on TIMIT
-phone alignments: 270 utterances / 30 speakers, features from the app's own `FeatureExtractor`
-(17-dim frame vector × 5-frame context), MLP 85-48-48-9 with Adam, class-balanced cross-entropy.
-Speaker-disjoint held-out frame accuracy **66.7 %** (majority-class baseline 39.6 %); confusion
-matrix in `assets/models/viseme_mlp.train.log`. The `.frvm` format is plain C++ so the trained
+`assets/models/viseme_mlp.frvm` is **trained** (not hand-set) by `fr_train_visemes` on the
+**full TIMIT corpus** (official split: 3696 TRAIN / 1344 TEST utterances after dropping SA1/SA2,
+462 + 168 speakers), features from the app's own `FeatureExtractor` (17-dim frame vector ×
+7-frame context), MLP 119-128-128-9 with Adam, class-balanced cross-entropy. Frame accuracy on
+the official TEST set **77.5 %** (majority-class baseline 34.7 %); confusion matrix in
+`assets/models/viseme_mlp.train.log`. The trainer also accepts flat `<speaker>/<utt>.wav+.phn`
+subsets (then it holds out 20 % of speakers). The `.frvm` format is plain C++ so the trained
 model runs in every build; `FR_WITH_TORCH` additionally allows TorchScript `.pt` models.
 
 ## Layout

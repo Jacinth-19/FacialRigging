@@ -97,6 +97,11 @@ public:
     void bindFreeForm(int cp, float radius);
     /// Moves a control point; propagates to bone/blendshape depending on the binding.
     void moveControlPoint(int cp, const glm::vec3& newOffset);
+    /// Symmetry: when set, moveControlPoint also applies the X-mirrored offset to the point's
+    /// left/right partner (see mirrorPartner). Toggled by the Check Model "Force Symmetry" box.
+    bool forceSymmetry = false;
+    /// Index of the control point mirrored across x = 0 (by "L"/"R" name suffix or by position), or -1.
+    int mirrorPartner(int i) const;
     /// Applies rig state (bone pose / weights) back onto control point offsets, so handles follow the animation.
     void syncControlPointsFromRig();
 

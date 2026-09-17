@@ -7,6 +7,9 @@
 int main(int argc, char** argv) {
     fr::Application::Options o;
     o.shaderDir = FR_SHADER_DIR; o.assetDir = FR_ASSET_DIR;
+#ifdef FR_ICON_FONT
+    o.iconFontPath = FR_ICON_FONT;
+#endif
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         auto next = [&]() -> std::string { return i + 1 < argc ? argv[++i] : ""; };

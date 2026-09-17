@@ -246,6 +246,20 @@ if(FR_BUILD_APP)
   target_include_directories(imgui PRIVATE ${CMAKE_SOURCE_DIR}/src)
   target_compile_definitions(imgui PUBLIC GLFW_INCLUDE_NONE)
 
+  # Material Icons (google/material-design-icons via the marella/material-icons mirror submodule):
+  # unpack the TrueType webfont into the build tree and generate the codepoint header.
+  set(FR_ICON_FONT ${CMAKE_BINARY_DIR}/fonts/MaterialIcons-Regular.ttf)
+  add_custom_command(OUTPUT ${FR_ICON_FONT}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/fonts
+    COMMAND python3 ${CMAKE_SOURCE_DIR}/tools/woff2ttf.py ${CMAKE_SOURCE_DIR}/third_party/material-icons/iconfont/material-icons.woff ${FR_ICON_FONT}
+    DEPENDS ${CMAKE_SOURCE_DIR}/third_party/material-icons/iconfont/material-icons.woff ${CMAKE_SOURCE_DIR}/tools/woff2ttf.py
+    COMMENT "Unpacking Material Icons font")
+  add_custom_command(OUTPUT ${CMAKE_SOURCE_DIR}/src/ui/icons_material.h
+    COMMAND python3 ${CMAKE_SOURCE_DIR}/tools/gen_icon_header.py ${CMAKE_SOURCE_DIR}/third_party/material-icons/_data/codepoints.json ${CMAKE_SOURCE_DIR}/src/ui/icons_material.h
+    DEPENDS ${CMAKE_SOURCE_DIR}/third_party/material-icons/_data/codepoints.json ${CMAKE_SOURCE_DIR}/tools/gen_icon_header.py
+    COMMENT "Generating Material Icons codepoint header")
+  add_custom_target(fr_icon_font DEPENDS ${FR_ICON_FONT} ${CMAKE_SOURCE_DIR}/src/ui/icons_material.h)
+
   add_executable(facial_rigging
     src/app/main.cpp
     src/app/application.cpp
@@ -254,10 +268,12 @@ if(FR_BUILD_APP)
     src/render/gizmo_renderer.cpp
     src/ui/panels.cpp
     src/ui/theme.cpp)
+  add_dependencies(facial_rigging fr_icon_font)
   target_link_libraries(facial_rigging PRIVATE fr_core imgui glfw fr_warnings)
   target_compile_definitions(facial_rigging PRIVATE
     FR_SHADER_DIR="${CMAKE_SOURCE_DIR}/shaders"
-    FR_ASSET_DIR="${CMAKE_SOURCE_DIR}/assets")
+    FR_ASSET_DIR="${CMAKE_SOURCE_DIR}/assets"
+    FR_ICON_FONT="${FR_ICON_FONT}")
   if(APPLE)
     target_link_libraries(facial_rigging PRIVATE "-framework OpenGL")
   endif()

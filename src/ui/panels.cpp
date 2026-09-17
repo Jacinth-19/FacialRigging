@@ -85,9 +85,7 @@ void menuBar(Application& app) {
         ImGui::SameLine(ImGui::GetWindowWidth() - tw - 90 * S());
         ImGui::TextColored(kTextDim, "%.0f fps", ImGui::GetIO().Framerate);
         ImGui::SameLine(ImGui::GetWindowWidth() - tw);
-        ImVec2 p = ImGui::GetCursorScreenPos();
-        ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(p.x + 6 * S(), p.y + ImGui::GetFrameHeight() * 0.5f), 4 * S(), ImGui::ColorConvertFloat4ToU32(kAccent));
-        ImGui::Dummy(ImVec2(14 * S(), 0)); ImGui::SameLine();
+        ImGui::TextColored(kAccent, "%s", app.liveEnabled ? ICON_MD_MIC : app.playing ? ICON_MD_PLAY_ARROW : ICON_MD_CIRCLE); ImGui::SameLine();
         ImGui::TextUnformatted(mode);
         ImGui::EndMainMenuBar();
     }
@@ -108,9 +106,9 @@ void leftColumn(Application& app) {
         ImDrawList* dl = ImGui::GetWindowDrawList();
         ImVec2 p = ImGui::GetCursorScreenPos(); float w = ImGui::GetContentRegionAvail().x;
         dl->AddRectFilled(p, ImVec2(p.x + w, p.y + 58 * S()), ImGui::ColorConvertFloat4ToU32(kPanelAlt), 4 * S());
-        dl->AddCircleFilled(ImVec2(p.x + 24 * S(), p.y + 29 * S()), 14 * S(), ImGui::ColorConvertFloat4ToU32(kAccent));
-        dl->AddCircle(ImVec2(p.x + 24 * S(), p.y + 27 * S()), 6 * S(), ImGui::ColorConvertFloat4ToU32(kBg), 0, 2 * S());
-        dl->AddLine(ImVec2(p.x + 17 * S(), p.y + 37 * S()), ImVec2(p.x + 31 * S(), p.y + 37 * S()), ImGui::ColorConvertFloat4ToU32(kBg), 2 * S());
+        dl->AddCircleFilled(ImVec2(p.x + 24 * S(), p.y + 29 * S()), 15 * S(), ImGui::ColorConvertFloat4ToU32(kAccent));
+        { ImFont* iF = ui.fonts.icons; ImVec2 is = iF->CalcTextSizeA(iF->FontSize, 1000, 0, ICON_MD_FACE);
+          dl->AddText(iF, iF->FontSize, ImVec2(p.x + 24 * S() - is.x * 0.5f, p.y + 29 * S() - is.y * 0.5f), ImGui::ColorConvertFloat4ToU32(kBg), ICON_MD_FACE); }
         dl->AddText(ui.fonts.small, ui.fonts.small->FontSize, ImVec2(p.x + 46 * S(), p.y + 10 * S()), ImGui::ColorConvertFloat4ToU32(kTextDim), "facial");
         dl->AddText(ui.fonts.logo, ui.fonts.logo->FontSize, ImVec2(p.x + 45 * S(), p.y + 22 * S()), ImGui::ColorConvertFloat4ToU32(ImVec4(1, 1, 1, 1)), "accu");
         float aw = ui.fonts.logo->CalcTextSizeA(ui.fonts.logo->FontSize, 1000, 0, "accu").x;
@@ -119,16 +117,16 @@ void leftColumn(Application& app) {
     }
 
     const bool haveMesh = app.pipe.rig.mesh.vertexCount() > 0, haveRig = !app.pipe.rig.skeleton.bones.empty(), haveClip = app.pipe.clip.duration > 0;
-    struct StepDef { const char* title; const char* sub; bool enabled; };
+    struct StepDef { const char* icon; const char* title; const char* sub; bool enabled; };
     const StepDef defs[StepCount] = {
-        {"Load Face", ui.stepDone[StepLoad] ? "Model loaded" : "OBJ / ICT-FaceKit", true},
-        {"Check Model", "Orient. & Center", haveMesh},
-        {"Face Rig", "Bones, shapes, handles", haveMesh},
-        {"Lip-sync", "Audio & microphone", haveRig},
-        {"Check Animation", "Preview & export", haveClip || haveRig},
+        {ICON_MD_FOLDER_OPEN, "Load Face", ui.stepDone[StepLoad] ? "Model loaded" : "OBJ / ICT-FaceKit", true},
+        {ICON_MD_3D_ROTATION, "Check Model", "Orient. & Center", haveMesh},
+        {ICON_MD_FACE_RETOUCHING_NATURAL, "Face Rig", "Bones, shapes, handles", haveMesh},
+        {ICON_MD_RECORD_VOICE_OVER, "Lip-sync", "Audio & microphone", haveRig},
+        {ICON_MD_MOVIE, "Check Animation", "Preview & export", haveClip || haveRig},
     };
     for (int i = 0; i < StepCount; ++i) {
-        if (StepCard(i + 1, defs[i].title, defs[i].sub, ui.step == i, ui.stepDone[i], defs[i].enabled, ui.fonts)) ui.step = i;
+        if (StepCard(i + 1, defs[i].icon, defs[i].title, defs[i].sub, ui.step == i, ui.stepDone[i], defs[i].enabled, ui.fonts)) ui.step = i;
     }
 
     // bottom promo-style info card (AccuRIG has an ad here; we show pipeline stats)
@@ -152,7 +150,7 @@ void pageLoad(Application& app) {
     SectionLabel("Face model (.obj, optional <name>.fbs blendshapes) :");
     ImGui::SetNextItemWidth(-1);
     ImGui::InputTextWithHint("##model", "path/to/head.obj", ui.modelBuf, sizeof ui.modelBuf);
-    if (PrimaryButton("Load Face Model", ImVec2(-1, 34 * S()))) { app.loadModel(ui.modelBuf); ui.stepDone[StepLoad] = app.pipe.rig.mesh.vertexCount() > 0; if (ui.stepDone[StepLoad]) ui.step = StepCheck; }
+    if (PrimaryButton(ICON_MD_FOLDER_OPEN "  Load Face Model", ImVec2(-1, 34 * S()))) { app.loadModel(ui.modelBuf); ui.stepDone[StepLoad] = app.pipe.rig.mesh.vertexCount() > 0; if (ui.stepDone[StepLoad]) ui.step = StepCheck; }
     ImGui::Spacing();
     SectionLabel("Bundled heads :");
     auto bundled = [&](const char* label, const std::string& path, const char* tip) {
@@ -195,26 +193,26 @@ void pageCheck(Application& app) {
     dl->AddLine(ImVec2(c.x + 60 * S(), c.y), ImVec2(c.x + 90 * S(), c.y), line, 1.2f * S()); dl->AddText(ImVec2(c.x + 62 * S(), c.y - 16 * S()), line, "+Z front");
     dl->AddLine(ImVec2(c.x - 90 * S(), c.y + 40 * S()), ImVec2(c.x - 90 * S(), c.y - 20 * S()), line, 1.2f * S()); dl->AddText(ImVec2(c.x - 105 * S(), c.y - 36 * S()), line, "+Y up");
     ImGui::SetCursorPos(ImVec2(8 * S(), sz.y - 24 * S()));
-    ImGui::TextColored(kText, "Face looks toward +Z, up is +Y, center line on the nose");
+    ImGui::TextColored(kText, "Face toward +Z, up +Y, line on the nose");
     ImGui::EndChild(); ImGui::PopStyleColor();
 
     SectionLabel("Rotate Model :");
     auto rot = [&](const char* label, const glm::mat3& R, const char* tip) {
-        if (ImGui::Button(label, ImVec2(52 * S(), 30 * S()))) { p.transformModel(R); app.reuploadMesh(); app.pushUndo(); ui.stepDone[StepRig] = false; }
+        if (ImGui::Button(label, ImVec2(92 * S(), 30 * S()))) { p.transformModel(R); app.reuploadMesh(); app.pushUndo(); ui.stepDone[StepRig] = false; }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
         ImGui::SameLine();
     };
     const float h = glm::half_pi<float>();
-    rot("X 90", glm::mat3(glm::rotate(glm::mat4(1), h, glm::vec3(1, 0, 0))), "Rotate +90 deg about X (Z-up -> Y-up)");
-    rot("X -90", glm::mat3(glm::rotate(glm::mat4(1), -h, glm::vec3(1, 0, 0))), "Rotate -90 deg about X");
-    rot("Y 90", glm::mat3(glm::rotate(glm::mat4(1), h, glm::vec3(0, 1, 0))), "Turn the head a quarter to the left");
-    rot("Y 180", glm::mat3(glm::rotate(glm::mat4(1), glm::pi<float>(), glm::vec3(0, 1, 0))), "Face was looking away: turn around");
+    rot(ICON_MD_ROTATE_RIGHT " X +90", glm::mat3(glm::rotate(glm::mat4(1), h, glm::vec3(1, 0, 0))), "Rotate +90 deg about X (Z-up -> Y-up)");
+    rot(ICON_MD_ROTATE_LEFT " X -90", glm::mat3(glm::rotate(glm::mat4(1), -h, glm::vec3(1, 0, 0))), "Rotate -90 deg about X");
+    rot(ICON_MD_ROTATE_RIGHT " Y +90", glm::mat3(glm::rotate(glm::mat4(1), h, glm::vec3(0, 1, 0))), "Turn the head a quarter to the left");
+    rot(ICON_MD_SWAP_VERT " Y 180", glm::mat3(glm::rotate(glm::mat4(1), glm::pi<float>(), glm::vec3(0, 1, 0))), "Face was looking away: turn around");
     ImGui::NewLine();
-    rot("Z 90", glm::mat3(glm::rotate(glm::mat4(1), h, glm::vec3(0, 0, 1))), "Roll +90 deg");
-    rot("Z -90", glm::mat3(glm::rotate(glm::mat4(1), -h, glm::vec3(0, 0, 1))), "Roll -90 deg");
-    rot("Mirror X", glm::mat3(glm::scale(glm::mat4(1), glm::vec3(-1, 1, 1))), "Mirror left/right");
+    rot(ICON_MD_ROTATE_RIGHT " Z +90", glm::mat3(glm::rotate(glm::mat4(1), h, glm::vec3(0, 0, 1))), "Roll +90 deg");
+    rot(ICON_MD_ROTATE_LEFT " Z -90", glm::mat3(glm::rotate(glm::mat4(1), -h, glm::vec3(0, 0, 1))), "Roll -90 deg");
+    rot(ICON_MD_FLIP, glm::mat3(glm::scale(glm::mat4(1), glm::vec3(-1, 1, 1))), "Mirror left/right");
     ImGui::NewLine();
-    if (ImGui::Button("Auto-detect", ImVec2(-1, 28 * S()))) {
+    if (WideButton(ICON_MD_AUTO_FIX_HIGH "  Auto-detect orientation", ImVec2(-1, 28 * S()))) {
         if (p.rig.mesh.looksZUp()) { p.transformModel(glm::mat3(glm::rotate(glm::mat4(1), -h, glm::vec3(1, 0, 0)))); app.reuploadMesh(); app.status = "Auto: rotated Z-up model to Y-up"; }
         else app.status = "Auto: model already looks Y-up";
     }
@@ -223,8 +221,9 @@ void pageCheck(Application& app) {
     if (ImGui::SliderFloat("##centre", &ui.centreLine, -0.25f, 0.25f, "%.3f")) {}
     ImGui::SameLine(); if (ImGui::Button("Apply", ImVec2(-1, 0))) { p.translateModel(glm::vec3(-ui.centreLine, 0, 0)); ui.centreLine = 0; app.reuploadMesh(); }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Shift the model so the nose sits on x = 0 (mirror symmetry for L/R shapes)");
-    ImGui::Checkbox("Force Symmetry", &ui.symmetry);
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Mirror left/right control points and brow/eye shapes when rigging");
+    if (ImGui::Checkbox("Force Symmetry", &ui.symmetry)) p.rig.forceSymmetry = ui.symmetry;
+    p.rig.forceSymmetry = ui.symmetry;
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Dragging a left/right control point also moves its mirrored partner (BrowL <-> BrowR, MouthCornerL <-> MouthCornerR, ...)");
     Rule();
     // orientation diagnostics
     const Mesh& m = p.rig.mesh;
@@ -234,12 +233,13 @@ void pageCheck(Application& app) {
         // "front" heuristic: more surface area on +Z than -Z half (a face is convex forward)
         double zsum = 0; for (auto& v : m.positions) zsum += v.z; bool front = zsum / double(m.vertexCount()) > -0.02;
         ImGui::TextColored(kTextDim, "Extents  x %.2f  y %.2f  z %.2f", e.x, e.y, e.z);
-        ImGui::TextColored(tall ? kAccent : kWarn, "%s  vertical axis is Y", tall ? "OK" : "!!");
-        ImGui::TextColored(front ? kAccent : kWarn, "%s  face points toward +Z", front ? "OK" : "!!");
-        ImGui::TextColored(std::abs(0.5f * (lo.x + hi.x)) < 0.02f ? kAccent : kWarn, "%s  centred on x = 0", std::abs(0.5f * (lo.x + hi.x)) < 0.02f ? "OK" : "!!");
+        bool cx = std::abs(0.5f * (lo.x + hi.x)) < 0.02f;
+        ImGui::TextColored(tall ? kAccent : kWarn, "%s  vertical axis is Y", tall ? ICON_MD_CHECK_CIRCLE : ICON_MD_WARNING);
+        ImGui::TextColored(front ? kAccent : kWarn, "%s  face points toward +Z", front ? ICON_MD_CHECK_CIRCLE : ICON_MD_WARNING);
+        ImGui::TextColored(cx ? kAccent : kWarn, "%s  centred on x = 0", cx ? ICON_MD_CHECK_CIRCLE : ICON_MD_WARNING);
     }
     ImGui::Dummy(ImVec2(0, 6 * S()));
-    if (PrimaryButton("Rig Face", ImVec2(-1, 36 * S()), m.vertexCount() > 0)) {
+    if (PrimaryButton(ICON_MD_FACE_RETOUCHING_NATURAL "  Rig Face", ImVec2(-1, 36 * S()), m.vertexCount() > 0)) {
         app.pushUndo(); p.buildDefaultRig(); app.reuploadMesh(); app.status = p.log.back();
         ui.stepDone[StepCheck] = ui.stepDone[StepRig] = true; ui.step = StepRig;
     }
@@ -264,11 +264,12 @@ void controlPointEditor(Application& app) {
     auto toolBtn = [&](const char* label, Application::Tool t) {
         bool active = app.tool == t;
         if (active) { ImGui::PushStyleColor(ImGuiCol_Button, kAccent); ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.06f, 0.08f, 0.02f, 1)); }
-        if (ImGui::Button(label, ImVec2(92 * S(), 28 * S()))) app.tool = t;
+        if (ImGui::Button(label, ImVec2(0, 28 * S()))) app.tool = t;
         if (active) ImGui::PopStyleColor(2);
         ImGui::SameLine();
     };
-    toolBtn("Orbit  Q", Application::Tool::Orbit); toolBtn("Add  W", Application::Tool::AddPoint); toolBtn("Move  E", Application::Tool::MovePoint); ImGui::NewLine();
+    if (ImGui::Checkbox("Symmetry", &ui.symmetry)) {} rig.forceSymmetry = ui.symmetry; ImGui::SameLine();
+    toolBtn(ICON_MD_3D_ROTATION, Application::Tool::Orbit); toolBtn(ICON_MD_ADD_LOCATION_ALT, Application::Tool::AddPoint); toolBtn(ICON_MD_OPEN_WITH, Application::Tool::MovePoint); ImGui::TextColored(kTextDim, "%s", app.tool == Application::Tool::Orbit ? "Orbit (Q)" : app.tool == Application::Tool::AddPoint ? "Add point (W)" : "Move point (E)"); ImGui::NewLine();
     if (ImGui::BeginTable("cps", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerH, ImVec2(0, 150 * S()))) {
         ImGui::TableSetupColumn("Name"); ImGui::TableSetupColumn("Binding"); ImGui::TableSetupColumn("Target"); ImGui::TableHeadersRow();
         for (size_t i = 0; i < rig.controlPoints.size(); ++i) {
@@ -420,7 +421,7 @@ void pageLipSync(Application& app) {
                 ImGui::EndCombo();
             }
             if (!ui.devErr.empty() && ui.devs.size() <= 1) ImGui::TextColored(kWarn, "%s", ui.devErr.c_str());
-            if (PrimaryButton(app.liveEnabled ? "Stop capture" : "Start capture", ImVec2(-1, 32 * S()))) app.toggleLive(ui.devSel < 0 ? -1 : ui.devs[size_t(ui.devSel)].index);
+            if (PrimaryButton(app.liveEnabled ? ICON_MD_MIC_OFF "  Stop capture" : ICON_MD_MIC "  Start capture", ImVec2(-1, 32 * S()))) app.toggleLive(ui.devSel < 0 ? -1 : ui.devs[size_t(ui.devSel)].index);
             if (!app.liveError.empty() && !app.liveEnabled) ImGui::TextColored(kError, "%s", app.liveError.c_str());
             if (app.liveEnabled) {
                 ImGui::ProgressBar(std::min(1.0f, app.live.inputLevel() * 3.0f), ImVec2(-1, 6 * S()), "");
@@ -445,7 +446,7 @@ void pageLipSync(Application& app) {
     ImGui::SetNextItemWidth(-1); ImGui::SliderInt("##smooth", &p.lipSync.smoothingRadiusFrames, 0, 5, "Smoothing  %d frames");
     ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##fps", &p.lipSync.frameRate, 24.0f, 60.0f, "Frame rate  %.0f fps");
     ImGui::Dummy(ImVec2(0, 4 * S()));
-    if (PrimaryButton("Generate Animation", ImVec2(-1, 36 * S()))) { app.generate(); if (p.clip.duration > 0) { ui.stepDone[StepLipSync] = true; ui.step = StepAnim; } }
+    if (PrimaryButton(ICON_MD_ANIMATION "  Generate Animation", ImVec2(-1, 36 * S()))) { app.generate(); if (p.clip.duration > 0) { ui.stepDone[StepLipSync] = true; ui.step = StepAnim; } }
 }
 
 void pageAnim(Application& app) {
@@ -456,8 +457,8 @@ void pageAnim(Application& app) {
         ImGui::TextColored(kTextDim, "Clip '%s'   %d frames @ %.0f fps   %.2f s", p.clip.name.c_str(), p.clip.frameCount(), p.clip.frameRate, p.clip.duration);
         // transport
         float bw = (ImGui::GetContentRegionAvail().x - 16 * S()) / 3.0f;
-        if (PrimaryButton(app.playing ? "Pause" : "Play", ImVec2(bw, 30 * S()))) app.playing = !app.playing;
-        ImGui::SameLine(); if (WideButton("Stop", ImVec2(bw, 30 * S()))) { app.playing = false; app.playTime = 0; p.clip.applyTo(p.rig, 0); }
+        if (PrimaryButton(app.playing ? ICON_MD_PAUSE " Pause" : ICON_MD_PLAY_ARROW " Play", ImVec2(bw, 30 * S()))) app.playing = !app.playing;
+        ImGui::SameLine(); if (WideButton(ICON_MD_STOP " Stop", ImVec2(bw, 30 * S()))) { app.playing = false; app.playTime = 0; p.clip.applyTo(p.rig, 0); }
         ImGui::SameLine(); ImGui::Checkbox("Loop", &app.loop);
         ImGui::SetNextItemWidth(-1);
         if (ImGui::SliderFloat("##time", &app.playTime, 0.0f, p.clip.duration, "%.2f s")) p.clip.applyTo(p.rig, app.playTime);
@@ -471,7 +472,7 @@ void pageAnim(Application& app) {
     ImGui::TextColored(kTextDim, FR_HAVE_FBX_SDK ? "FBX SDK writer: .fbx / .glb / .gltf" : FR_HAVE_ASSIMP ? "Assimp FBX writer: .fbx / .glb / .gltf" : ".glb / .gltf (no FBX writer compiled in)");
     ImGui::SetNextItemWidth(-1); ImGui::InputTextWithHint("##var", "variations, ; separated", ui.variationBuf, sizeof ui.variationBuf);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("e.g. \"Increase smile; Raise eyebrows; intensity=1.4; subtle\" - one extra file per variation");
-    if (PrimaryButton("Export...", ImVec2(-1, 36 * S()))) ui.showExportDialog = true;
+    if (PrimaryButton(ICON_MD_IOS_SHARE "  Export...", ImVec2(-1, 36 * S()))) ui.showExportDialog = true;
     Rule();
     ImGui::TextColored(kTextDim, "Log");
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.09f, 0.09f, 0.09f, 1));
@@ -491,10 +492,10 @@ void exportDialog(Application& app) {
     if (ImGui::BeginPopupModal("Export", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
         auto vars = [&]() { std::vector<std::string> v; std::string s = ui.variationBuf, tok; size_t pos; while ((pos = s.find(';')) != std::string::npos) { tok = s.substr(0, pos); s.erase(0, pos + 1); if (tok.find_first_not_of(' ') != std::string::npos) v.push_back(tok); } if (s.find_first_not_of(' ') != std::string::npos) v.push_back(s); return v; };
         auto withExt = [&](const char* ext) { std::string o = ui.exportBuf; auto dot = o.find_last_of('.'), sl = o.find_last_of("/\\"); if (dot != std::string::npos && (sl == std::string::npos || dot > sl)) o = o.substr(0, dot); return o + "." + ext; };
-        if (WideButton("Export FBX...", ImVec2(-1, 36 * S()), FR_HAVE_FBX_SDK || FR_HAVE_ASSIMP)) { app.exportNow(withExt("fbx"), vars()); ui.stepDone[StepAnim] = true; ImGui::CloseCurrentPopup(); }
-        if (WideButton("Export glTF binary (.glb)...", ImVec2(-1, 36 * S()))) { app.exportNow(withExt("glb"), vars()); ui.stepDone[StepAnim] = true; ImGui::CloseCurrentPopup(); }
-        if (WideButton("Export glTF (.gltf + .bin)...", ImVec2(-1, 36 * S()))) { app.exportNow(withExt("gltf"), vars()); ui.stepDone[StepAnim] = true; ImGui::CloseCurrentPopup(); }
-        if (WideButton("Save current pose only...", ImVec2(-1, 36 * S()))) { std::string err; AnimationClip c = snapshotPose(app.pipe.rig); app.status = app.pipe.exportClip(c, ui.exportBuf, &err) ? "Exported pose to " + std::string(ui.exportBuf) : "Export failed: " + err; ImGui::CloseCurrentPopup(); }
+        if (WideButton(ICON_MD_FILE_DOWNLOAD "  Export FBX...", ImVec2(-1, 36 * S()), FR_HAVE_FBX_SDK || FR_HAVE_ASSIMP)) { app.exportNow(withExt("fbx"), vars()); ui.stepDone[StepAnim] = true; ImGui::CloseCurrentPopup(); }
+        if (WideButton(ICON_MD_FILE_DOWNLOAD "  Export glTF binary (.glb)...", ImVec2(-1, 36 * S()))) { app.exportNow(withExt("glb"), vars()); ui.stepDone[StepAnim] = true; ImGui::CloseCurrentPopup(); }
+        if (WideButton(ICON_MD_FILE_DOWNLOAD "  Export glTF (.gltf + .bin)...", ImVec2(-1, 36 * S()))) { app.exportNow(withExt("gltf"), vars()); ui.stepDone[StepAnim] = true; ImGui::CloseCurrentPopup(); }
+        if (WideButton(ICON_MD_SAVE "  Save current pose only...", ImVec2(-1, 36 * S()))) { std::string err; AnimationClip c = snapshotPose(app.pipe.rig); app.status = app.pipe.exportClip(c, ui.exportBuf, &err) ? "Exported pose to " + std::string(ui.exportBuf) : "Export failed: " + err; ImGui::CloseCurrentPopup(); }
         ImGui::Spacing();
         if (ImGui::Button("Cancel", ImVec2(-1, 26 * S()))) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
@@ -551,23 +552,20 @@ void viewportOverlay(Application& app) {
     ImGui::SetNextWindowPos(ImVec2(x0 + 6 * S(), vp->WorkPos.y + 60 * S()));
     ImGui::SetNextWindowBgAlpha(0.0f);
     ImGui::Begin("##tools", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings);
-    auto iconBtn = [&](const char* glyph, bool active, const char* tip) {
-        if (active) { ImGui::PushStyleColor(ImGuiCol_Button, kAccent); ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.06f, 0.08f, 0.02f, 1)); }
-        bool r2 = ImGui::Button(glyph, ImVec2(30 * S(), 30 * S()));
-        if (active) ImGui::PopStyleColor(2);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
-        return r2;
-    };
-    if (iconBtn("O", app.tool == Application::Tool::Orbit, "Orbit (Q)")) app.tool = Application::Tool::Orbit;
-    if (iconBtn("+", app.tool == Application::Tool::AddPoint, "Add control point (W)")) app.tool = Application::Tool::AddPoint;
-    if (iconBtn("M", app.tool == Application::Tool::MovePoint, "Move control point (E)")) app.tool = Application::Tool::MovePoint;
+    auto iconBtn = [&](const char* glyph, bool active, const char* tip) { return IconButton(glyph, active, tip, ui.fonts, 32.0f); };
+    if (iconBtn(ICON_MD_3D_ROTATION, app.tool == Application::Tool::Orbit, "Orbit (Q)")) app.tool = Application::Tool::Orbit;
+    if (iconBtn(ICON_MD_ADD_LOCATION_ALT, app.tool == Application::Tool::AddPoint, "Add control point (W)")) app.tool = Application::Tool::AddPoint;
+    if (iconBtn(ICON_MD_OPEN_WITH, app.tool == Application::Tool::MovePoint, "Move control point (E)")) app.tool = Application::Tool::MovePoint;
     ImGui::Dummy(ImVec2(0, 6 * S()));
-    if (iconBtn("W", app.meshRenderer.wireframe, "Wireframe")) app.meshRenderer.wireframe = !app.meshRenderer.wireframe;
-    if (iconBtn("B", app.showBones, "Show bones")) app.showBones = !app.showBones;
-    if (iconBtn("P", app.showPoints, "Show control points")) app.showPoints = !app.showPoints;
-    if (iconBtn("L", app.showLabels, "Show labels")) app.showLabels = !app.showLabels;
+    if (iconBtn(ICON_MD_GRID_ON, app.meshRenderer.wireframe, "Wireframe")) app.meshRenderer.wireframe = !app.meshRenderer.wireframe;
+    if (iconBtn(ICON_MD_ACCESSIBILITY_NEW, app.showBones, "Show bones")) app.showBones = !app.showBones;
+    if (iconBtn(ICON_MD_HIGHLIGHT_ALT, app.showPoints, "Show control points")) app.showPoints = !app.showPoints;
+    if (iconBtn(ICON_MD_LABEL, app.showLabels, "Show labels")) app.showLabels = !app.showLabels;
     ImGui::Dummy(ImVec2(0, 6 * S()));
-    if (iconBtn("F", false, "Frame the face")) { app.camera.target = 0.5f * (r.mesh.boundsMin() + r.mesh.boundsMax()); app.camera.distance = 2.2f * glm::length(e); app.camera.yaw = app.camera.pitch = 0; }
+    if (iconBtn(ICON_MD_UNDO, false, "Undo (Ctrl+Z)")) app.undo();
+    if (iconBtn(ICON_MD_REDO, false, "Redo (Ctrl+Y)")) app.redo();
+    ImGui::Dummy(ImVec2(0, 6 * S()));
+    if (iconBtn(ICON_MD_CENTER_FOCUS_STRONG, false, "Frame the face")) { app.camera.target = 0.5f * (r.mesh.boundsMin() + r.mesh.boundsMax()); app.camera.distance = 2.2f * glm::length(e); app.camera.yaw = app.camera.pitch = 0; }
     ImGui::End();
     // status line bottom-left of viewport
     if (!app.status.empty()) {
@@ -580,7 +578,7 @@ void viewportOverlay(Application& app) {
         ImGui::SetNextWindowSize(ImVec2(std::min(520 * S(), x1 - x0 - 80 * S()), 0));
         ImGui::SetNextWindowBgAlpha(0.85f);
         ImGui::Begin("##transport", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings);
-        if (PrimaryButton(app.playing ? "||" : ">", ImVec2(30 * S(), 24 * S()))) app.playing = !app.playing;
+        if (PrimaryButton(app.playing ? ICON_MD_PAUSE : ICON_MD_PLAY_ARROW, ImVec2(30 * S(), 24 * S()))) app.playing = !app.playing;
         ImGui::SameLine(); ImGui::SetNextItemWidth(-60 * S());
         if (ImGui::SliderFloat("##t", &app.playTime, 0.0f, app.pipe.clip.duration, "%.2f s")) app.pipe.clip.applyTo(app.pipe.rig, app.playTime);
         ImGui::SameLine(); ImGui::TextColored(kTextDim, "%d f", int(app.playTime * app.pipe.clip.frameRate));
@@ -591,7 +589,7 @@ void viewportOverlay(Application& app) {
 
 void initPanels(Application& app, float uiScale) {
     ui.scale = uiScale;
-    ui.fonts = theme::apply(app.options().assetDir, uiScale);
+    ui.fonts = theme::apply(app.options().assetDir, app.options().iconFontPath, uiScale);
     std::strncpy(ui.modelBuf, app.options().modelPath.c_str(), sizeof ui.modelBuf - 1);
     std::strncpy(ui.audioBuf, app.options().audioPath.c_str(), sizeof ui.audioBuf - 1);
     ui.init = true;

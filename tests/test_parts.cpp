@@ -60,3 +60,17 @@ TEST_CASE("ICT-FaceKit head loads with separated parts and 53 authored blendshap
     float minDy = 0; for (auto& d : p.rig.blendShapes[size_t(jaw)].deltas) minDy = std::min(minDy, d.y);
     CHECK(minDy < -0.05f * (hi.y - lo.y));
 }
+
+TEST_CASE("Force Symmetry mirrors control-point offsets onto the L/R partner") {
+    Rig rig; rig.setMesh(makeProceduralHead()); rig.buildDefaultFaceRig();
+    int l = -1, r = -1;
+    for (size_t i = 0; i < rig.controlPoints.size(); ++i) { if (rig.controlPoints[i].name == "BrowL") l = int(i); if (rig.controlPoints[i].name == "BrowR") r = int(i); }
+    REQUIRE(l >= 0); REQUIRE(r >= 0);
+    CHECK(rig.mirrorPartner(l) == r); CHECK(rig.mirrorPartner(r) == l);
+    rig.forceSymmetry = false; rig.moveControlPoint(l, glm::vec3(0.01f, 0.02f, 0.0f));
+    CHECK(rig.controlPoints[size_t(r)].offset == glm::vec3(0.0f));
+    rig.forceSymmetry = true; rig.moveControlPoint(l, glm::vec3(0.01f, 0.03f, 0.0f));
+    CHECK(rig.controlPoints[size_t(r)].offset.x == Approx(-0.01f)); CHECK(rig.controlPoints[size_t(r)].offset.y == Approx(0.03f));
+    int chin = -1; for (size_t i = 0; i < rig.controlPoints.size(); ++i) if (rig.controlPoints[i].name == "Chin") chin = int(i);
+    REQUIRE(chin >= 0); CHECK(rig.mirrorPartner(chin) == -1); // centre-line point has no partner
+}

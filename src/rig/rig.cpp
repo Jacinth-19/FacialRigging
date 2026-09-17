@@ -113,7 +113,31 @@ void Rig::bindToBlendShape(int cp, int shape, const glm::vec3& axis, float range
 }
 void Rig::bindFreeForm(int cp, float radius) { auto& c = controlPoints.at(cp); c.binding = BindingType::FreeForm; c.radius = radius; c.target = -1; }
 
+int Rig::mirrorPartner(int i) const {
+    if (i < 0 || size_t(i) >= controlPoints.size()) return -1;
+    const ControlPoint& c = controlPoints[size_t(i)];
+    auto swapSuffix = [](std::string n) -> std::string {
+        if (n.size() < 2) return "";
+        char last = n.back(); std::string base = n.substr(0, n.size() - 1);
+        if (last == 'L') return base + "R"; if (last == 'R') return base + "L";
+        if (n.size() > 2 && n.compare(n.size() - 2, 2, "_L") == 0) return n.substr(0, n.size() - 2) + "_R";
+        if (n.size() > 2 && n.compare(n.size() - 2, 2, "_R") == 0) return n.substr(0, n.size() - 2) + "_L";
+        return "";
+    };
+    std::string want = swapSuffix(c.name);
+    if (!want.empty()) for (size_t k = 0; k < controlPoints.size(); ++k) if (int(k) != i && controlPoints[k].name == want) return int(k);
+    if (std::abs(c.restPosition.x) < 1e-3f) return -1; // on the centre line: no partner
+    glm::vec3 m = c.restPosition * glm::vec3(-1, 1, 1);
+    int best = -1; float bestD = 0.05f * 0.05f;
+    for (size_t k = 0; k < controlPoints.size(); ++k) { if (int(k) == i) continue; float d = glm::dot(controlPoints[k].restPosition - m, controlPoints[k].restPosition - m); if (d < bestD) { bestD = d; best = int(k); } }
+    return best;
+}
+
 void Rig::moveControlPoint(int i, const glm::vec3& off) {
+    if (forceSymmetry) {
+        int j = mirrorPartner(i);
+        if (j >= 0) { bool saved = forceSymmetry; forceSymmetry = false; moveControlPoint(j, off * glm::vec3(-1, 1, 1)); forceSymmetry = saved; }
+    }
     ControlPoint& c = controlPoints.at(i);
     c.offset = off;
     switch (c.binding) {

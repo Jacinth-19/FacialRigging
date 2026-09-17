@@ -9,22 +9,35 @@ bool fileExists(const std::string& p) { struct stat st; return ::stat(p.c_str(),
 ImU32 c32(const ImVec4& v, float a = -1.0f) { ImVec4 c = v; if (a >= 0) c.w = a; return ImGui::ColorConvertFloat4ToU32(c); }
 }
 
-Fonts apply(const std::string& assetDir, float s) {
+Fonts apply(const std::string& assetDir, const std::string& iconFontPath, float s) {
     ImGuiIO& io = ImGui::GetIO();
     Fonts f;
     std::string ttf = assetDir + "/fonts/Inter.ttf";
-    if (fileExists(ttf)) {
+    const bool haveInter = fileExists(ttf), haveIcons = fileExists(iconFontPath);
+    static const ImWchar iconRange[] = {ICON_MIN_MD, ICON_MAX_MD, 0};
+    f.haveIcons = haveIcons;
+    // text face + merged icon face (icons sized ~1.25x the text so they read at UI weight)
+    auto addText = [&](float px) -> ImFont* {
         ImFontConfig cfg; cfg.OversampleH = 3; cfg.OversampleV = 2;
-        f.regular = io.Fonts->AddFontFromFileTTF(ttf.c_str(), 15.0f * s, &cfg);
-        f.small   = io.Fonts->AddFontFromFileTTF(ttf.c_str(), 12.5f * s, &cfg);
-        f.bold    = io.Fonts->AddFontFromFileTTF(ttf.c_str(), 16.0f * s, &cfg);   // Inter variable: regular weight, larger for emphasis
-        f.title   = io.Fonts->AddFontFromFileTTF(ttf.c_str(), 19.0f * s, &cfg);
-        f.logo    = io.Fonts->AddFontFromFileTTF(ttf.c_str(), 26.0f * s, &cfg);
-        io.FontDefault = f.regular;
-    } else {
-        std::fprintf(stderr, "[fr] Inter font not found at %s - using ImGui default\n", ttf.c_str());
-        f.regular = f.small = f.bold = f.title = f.logo = io.Fonts->AddFontDefault();
-    }
+        ImFont* font = haveInter ? io.Fonts->AddFontFromFileTTF(ttf.c_str(), px, &cfg) : io.Fonts->AddFontDefault();
+        if (haveIcons) {
+            ImFontConfig ic; ic.MergeMode = true; ic.PixelSnapH = true; ic.GlyphMinAdvanceX = px * 1.2f; ic.GlyphOffset = ImVec2(0, px * 0.12f);
+            io.Fonts->AddFontFromFileTTF(iconFontPath.c_str(), px * 1.25f, &ic, iconRange);
+        }
+        return font;
+    };
+    f.regular = addText(15.0f * s);
+    f.small   = addText(12.5f * s);
+    f.bold    = addText(16.0f * s);
+    f.title   = addText(19.0f * s);
+    f.logo    = addText(26.0f * s);
+    if (haveIcons) {
+        ImFontConfig ic; ic.PixelSnapH = true;
+        f.icons = io.Fonts->AddFontFromFileTTF(iconFontPath.c_str(), 22.0f * s, &ic, iconRange);
+        f.iconsLarge = io.Fonts->AddFontFromFileTTF(iconFontPath.c_str(), 30.0f * s, &ic, iconRange);
+    } else { f.icons = f.regular; f.iconsLarge = f.title; std::fprintf(stderr, "[fr] Material Icons font not found at %s - icons fall back to text\n", iconFontPath.c_str()); }
+    if (!haveInter) std::fprintf(stderr, "[fr] Inter font not found at %s - using ImGui default\n", ttf.c_str());
+    io.FontDefault = f.regular;
 
     ImGuiStyle& st = ImGui::GetStyle();
     st = ImGuiStyle();
@@ -83,7 +96,7 @@ bool WideButton(const char* label, const ImVec2& size, bool enabled) {
 void SectionLabel(const char* text) { ImGui::Spacing(); ImGui::TextColored(kTextDim, "%s", text); }
 void Rule() { ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing(); }
 
-bool StepCard(int number, const char* title, const char* subtitle, bool active, bool done, bool enabled, const Fonts& f) {
+bool StepCard(int number, const char* icon, const char* title, const char* subtitle, bool active, bool done, bool enabled, const Fonts& f) {
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const float w = ImGui::GetContentRegionAvail().x, h = kStepCardHeight * ImGui::GetIO().FontGlobalScale;
     const float s = ImGui::GetFontSize() / 15.0f; // scale factor relative to base font
@@ -102,21 +115,33 @@ bool StepCard(int number, const char* title, const char* subtitle, bool active, 
     char num[8]; std::snprintf(num, sizeof num, "%d", number);
     ImVec2 ns = f.small->CalcTextSizeA(f.small->FontSize, 100, 0, num);
     dl->AddText(f.small, f.small->FontSize, ImVec2(bc.x - ns.x * 0.5f, bc.y - ns.y * 0.5f), c32(ImVec4(0.05f, 0.05f, 0.05f, 1)), num);
-    // icon glyph area (simple line-art placeholder square)
-    ImVec2 ic(p0.x + 40 * s, p0.y + h * s * 0.5f);
-    ImU32 ig = c32(enabled ? kText : kTextMute);
-    dl->AddCircle(ImVec2(ic.x, ic.y - 6 * s), 7 * s, ig, 0, 1.6f * s);                       // head
-    dl->AddLine(ImVec2(ic.x - 9 * s, ic.y + 9 * s), ImVec2(ic.x + 9 * s, ic.y + 9 * s), ig, 1.6f * s); // shoulders
-    dl->AddLine(ImVec2(ic.x - 9 * s, ic.y + 9 * s), ImVec2(ic.x - 5 * s, ic.y + 2 * s), ig, 1.6f * s);
-    dl->AddLine(ImVec2(ic.x + 9 * s, ic.y + 9 * s), ImVec2(ic.x + 5 * s, ic.y + 2 * s), ig, 1.6f * s);
+    // Material icon
+    {
+        ImFont* iF = f.iconsLarge; float isz = iF->FontSize;
+        ImVec2 is = iF->CalcTextSizeA(isz, 1000, 0, icon);
+        ImVec2 ic(p0.x + 40 * s - is.x * 0.5f, p0.y + h * s * 0.5f - is.y * 0.5f);
+        dl->AddText(iF, isz, ic, c32(enabled ? (active ? ImVec4(1, 1, 1, 1) : kText) : kTextMute), icon);
+    }
     // title + subtitle
     float tx = p0.x + 62 * s;
     ImVec4 tc = enabled ? (active ? ImVec4(1, 1, 1, 1) : kText) : kTextMute;
     dl->AddText(f.bold, f.bold->FontSize, ImVec2(tx, p0.y + (subtitle && *subtitle ? 14 : 22) * s), c32(tc), title);
     if (subtitle && *subtitle) dl->AddText(f.small, f.small->FontSize, ImVec2(tx, p0.y + 36 * s), c32(enabled ? kTextDim : kTextMute), subtitle);
-    if (done && !active) dl->AddText(f.small, f.small->FontSize, ImVec2(p1.x - 22 * s, p0.y + 8 * s), c32(kAccent), "OK");
+    if (done && !active) dl->AddText(f.icons, f.icons->FontSize * 0.8f, ImVec2(p1.x - 24 * s, p0.y + 6 * s), c32(kAccent), ICON_MD_CHECK_CIRCLE);
     ImGui::Dummy(ImVec2(0, 4 * s));
     return clicked;
+}
+
+bool IconButton(const char* icon, bool active, const char* tooltip, const Fonts& f, float size) {
+    const float s = ImGui::GetFontSize() / 15.0f;
+    if (active) { ImGui::PushStyleColor(ImGuiCol_Button, kAccent); ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.06f, 0.08f, 0.02f, 1)); }
+    ImGui::PushFont(f.icons);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+    bool r = ImGui::Button(icon, ImVec2(size * s, size * s));
+    ImGui::PopStyleVar(); ImGui::PopFont();
+    if (active) ImGui::PopStyleColor(2);
+    if (tooltip && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tooltip);
+    return r;
 }
 
 } // namespace fr::theme

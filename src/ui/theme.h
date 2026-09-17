@@ -1,6 +1,7 @@
 #pragma once
 #include <imgui.h>
 #include <string>
+#include "ui/icons_material.h"
 
 namespace fr::theme {
 
@@ -27,10 +28,12 @@ inline constexpr float kRightWidth = 320.0f;
 inline constexpr float kMenuHeight = 26.0f;
 inline constexpr float kStepCardHeight = 64.0f;
 
-struct Fonts { ImFont* regular = nullptr; ImFont* bold = nullptr; ImFont* small = nullptr; ImFont* title = nullptr; ImFont* logo = nullptr; };
+/// Every text font has Material Icons merged in (ICON_MD_* strings render inline); `icons` is a
+/// larger icon-only face for the step cards and tool strip.
+struct Fonts { ImFont* regular = nullptr; ImFont* bold = nullptr; ImFont* small = nullptr; ImFont* title = nullptr; ImFont* logo = nullptr; ImFont* icons = nullptr; ImFont* iconsLarge = nullptr; bool haveIcons = false; };
 
 /// Loads Inter (assets/fonts/Inter.ttf) at the given scale and applies the dark/lime style.
-Fonts apply(const std::string& assetDir, float uiScale);
+Fonts apply(const std::string& assetDir, const std::string& iconFontPath, float uiScale);
 
 // Widgets used across the app -----------------------------------------------------------------
 /// Wide lime primary action button (AccuRIG "Rig Body"). Returns true when clicked.
@@ -42,6 +45,8 @@ void SectionLabel(const char* text);
 /// Thin horizontal rule with panel spacing.
 void Rule();
 /// A left-column wizard step card: number badge, icon glyph, title, subtitle. Returns true when clicked.
-bool StepCard(int number, const char* title, const char* subtitle, bool active, bool done, bool enabled, const Fonts& f);
+bool StepCard(int number, const char* icon, const char* title, const char* subtitle, bool active, bool done, bool enabled, const Fonts& f);
+/// Square icon button for the viewport tool strip. `active` paints it lime.
+bool IconButton(const char* icon, bool active, const char* tooltip, const Fonts& f, float size = 32.0f);
 
 } // namespace fr::theme

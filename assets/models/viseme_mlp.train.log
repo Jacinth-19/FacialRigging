@@ -1,16 +1,14 @@
-epoch  19  loss 0.5105  train acc 0.765  held-out acc 0.667  *
-epoch  20  loss 0.5088  train acc 0.766  held-out acc 0.666
-
-best held-out accuracy 0.667 (epoch 19). Confusion (rows = truth):
+best held-out accuracy 0.776 (epoch 21). Confusion (rows = truth):
         Silence     AA     EE     IH     OH     UW    MBP     FV   L_TH
- Silence    530      2      0      7      1      3     21      5     11
-      AA     14    425     23    111     81     21     21      3     26
-      EE      1      8    273     54     11      9      3      0      4
-      IH     40    115    114   1199    105     88    108     51     30
-      OH      0     42      2     21    156     14      8      1     20
-      UW     13      5     13     89     11    204      7      6      7
-     MBP     21      6      3     20      7      0    190      4      7
-      FV      4      1      0      4      2      3     22     56      7
-    L_TH      7     27      2     12     15     11     14      4     84
-majority-class (IH) baseline on held-out: 0.396
-wrote assets/models/viseme_mlp.frvm (TIMIT phone alignments, 270 utt / 30 spk, 19208 train frames, MLP 85-48-48-9, held-out acc 66.7% (speaker-disjoint), epoch 19)
+ Silence  16707    169     67    299     12     77    261     88    136
+      AA    230  13570    281   1939   1102    309    245    110    631
+      EE     36    163   7603    872    151    182     50     21     97
+      IH    546   2383   1883  31566   1585   1154   1075    430    835
+      OH     15    855    177    727   4113    153     73     58    347
+      UW     78    314    363    785    232   5196     57     58    234
+     MBP    221    172     74    723     94     76   6498    277    220
+      FV     75     60     37    211     42     43    226   3361    189
+    L_TH    102    508    127    423    382    201    136    244   4218
+majority-class (IH) baseline on held-out: 0.347
+wrote /tmp/full_128.frvm (TIMIT phone alignments, 5040 utt / 630 spk, 325781 train frames, MLP 119-128-128-9, held-out acc 77.5% (official TEST set), epoch 21)
+wrote /tmp/full_128.frvm (TIMIT phone alignments, 5040 utt / 630 spk, 325781 train frames, MLP 119-128-128-9, held-out acc 77.5% (official TEST set), epoch 21)

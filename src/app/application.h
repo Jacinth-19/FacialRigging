@@ -19,7 +19,7 @@ struct UndoState { std::vector<ControlPoint> controlPoints; std::vector<float> b
 class Application {
 public:
     struct Options {
-        std::string modelPath, audioPath, shaderDir, assetDir;
+        std::string modelPath, audioPath, shaderDir, assetDir, iconFontPath;
         int width = 1440, height = 900;
         bool autoGenerate = false;        ///< run lipsync right after start
         std::string exportOnStart;        ///< if set: export to this path and quit (agent mode)

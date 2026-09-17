@@ -265,9 +265,10 @@ void Rig::buildDefaultFaceRig() {
     // Anatomical parts (when the OBJ has named groups): rigid parts get hard weights so the
     // lower teeth/gums/tongue travel with the jaw and everything else stays on the head.
     const PartInfo parts = detectParts();
+    std::vector<char> rigid(mesh.vertexCount(), 0);
     auto hard = [&](int part, int bone) {
         if (part < 0) return;
-        for (uint32_t v : mesh.partVertices(part)) { skin[v] = VertexInfluence{}; skin[v].add(bone, 1.0f); skin[v].normalize(); }
+        for (uint32_t v : mesh.partVertices(part)) { skin[v] = VertexInfluence{}; skin[v].add(bone, 1.0f); skin[v].normalize(); rigid[v] = 1; }
     };
     hard(parts.teethLower, 1); hard(parts.gumsLower, 1); hard(parts.tongue, 1);
     hard(parts.teethUpper, 0); hard(parts.gumsUpper, 0); hard(parts.browL, 0); hard(parts.browR, 0); hard(parts.lashes, 0);
@@ -288,6 +289,22 @@ void Rig::buildDefaultFaceRig() {
         glm::vec3 tlo, thi; mesh.partBounds(parts.teethLower >= 0 ? parts.teethLower : parts.face, tlo, thi);
         // pivot: slightly above the lower-teeth top, at ~35% depth from the back of the head
         skeleton.bones[1].bindTranslation = glm::vec3(0.0f, (thi.y + 0.05f * H) - lo.y, (lo.z + 0.35f * D) - centre.z);
+        // Re-derive the soft jaw weights from the real pivot: full influence from the chin up to
+        // just under the lower lip, fading out towards the pivot height and at the back of the
+        // head. Full-bust scans include a neck, which must stay on the head - cut off below the chin.
+        const float pivotY = skeleton.bones[1].bindTranslation.y + lo.y;
+        const float teethH = std::max(thi.y - tlo.y, 0.01f * H);
+        const float chinY = tlo.y - 0.6f * teethH;
+        const float lipY = tlo.y + 0.5f * teethH; // upper lip / lower lip parting height
+        for (size_t i = 0; i < mesh.vertexCount(); ++i) {
+            if (rigid[i]) continue; // rigid parts already assigned
+            const glm::vec3& p = mesh.positions[i];
+            float below = smoothstep(lipY + 0.6f * (pivotY - lipY), lipY - 0.3f * teethH, p.y); // 0 mid-cheek -> 1 at the lower lip
+            float front = smoothstep(lo.z + 0.30f * D, lo.z + 0.55f * D, p.z);  // ramps in past the ear line
+            float keep = smoothstep(chinY - 1.0f * teethH, chinY, p.y);         // neck cutoff
+            float jw = std::clamp(below * front * keep, 0.0f, 1.0f);
+            skin[i] = VertexInfluence{}; skin[i].add(1, jw); skin[i].add(0, 1.0f - jw); skin[i].normalize();
+        }
     }
 
     // --- procedural blendshapes

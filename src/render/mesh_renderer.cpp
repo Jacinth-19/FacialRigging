@@ -21,6 +21,7 @@ void MeshRenderer::upload(const Rig& rig) {
     destroy();
     const Mesh& m = rig.mesh;
     vertexCount_ = int(m.vertexCount()); indexCount_ = int(m.indices.size());
+    { glm::vec3 sz = m.boundsMax() - m.boundsMin(); float h = std::max(sz.y, 1e-6f); heatScale = 1.0f / (0.08f * h); } // 8% of head height = full red
     glGenVertexArrays(1, &vao_); glBindVertexArray(vao_);
     glGenBuffers(1, &vboPos_); glBindBuffer(GL_ARRAY_BUFFER, vboPos_);
     glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(m.positions.size() * sizeof(glm::vec3)), m.positions.data(), GL_DYNAMIC_DRAW);
@@ -71,6 +72,9 @@ void MeshRenderer::draw(const Rig& rig, const glm::mat4& view, const glm::mat4& 
     shader_.set("u_Model", glm::mat4(1.0f)); shader_.set("u_View", view); shader_.set("u_Proj", proj);
     shader_.set("u_CameraPos", camPos); shader_.set("u_BaseColor", baseColor);
     shader_.set("u_VertexCount", vertexCount_);
+    shader_.set("u_ShadeMode", int(shadeMode)); shader_.set("u_HeatBone", heatBone); shader_.set("u_HeatShape", heatShape); shader_.set("u_HeatScale", heatScale);
+    // Heat modes 3/4 need the GPU deform inputs even when positions came from the CPU.
+    if (usedCpu_ && (shadeMode == ShadeMode::ShapeInfluence || shadeMode == ShadeMode::Displacement)) usedCpu_ = false;
     if (usedCpu_) {
         rig.evaluate(cpuPos_);
         cpuNrm_ = Mesh::computeNormals(cpuPos_, rig.mesh.indices);

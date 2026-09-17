@@ -18,6 +18,11 @@ public:
     void upload(const Rig& rig);                        ///< (re)upload geometry/skin/shapes
     void draw(const Rig& rig, const glm::mat4& view, const glm::mat4& proj, const glm::vec3& camPos);
     bool wireframe = false;
+    enum class ShadeMode { Lit = 0, Normals, BoneWeights, ShapeInfluence, Displacement };
+    ShadeMode shadeMode = ShadeMode::Lit;
+    int heatBone = 1;                                   ///< bone shown in BoneWeights mode
+    int heatShape = -1;                                 ///< shape shown in ShapeInfluence mode (-1 = all active)
+    float heatScale = 20.0f;                            ///< displacement (model units) -> heat; set from mesh size
     bool gpuDeform = true;                              ///< toggle CPU fallback for comparison
     glm::vec3 baseColor{0.86f, 0.70f, 0.62f};
     /// Last CPU-evaluated positions (valid when the CPU path was used this frame) - used for picking.

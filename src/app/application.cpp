@@ -60,7 +60,12 @@ int Application::run() {
     pipe.mapperKind = opts_.mapper == "ml" ? Pipeline::MapperKind::Ml : Pipeline::MapperKind::RuleBased;
     pipe.mlModelPath = opts_.modelPt;
     pipe.modelUpAxis = opts_.upAxis == "z" ? Pipeline::UpAxis::Z : opts_.upAxis == "y" ? Pipeline::UpAxis::Y : Pipeline::UpAxis::Auto;
+    if (!opts_.emotion.empty()) { pipe.lipSync.emotion = opts_.emotion; pipe.lipSync.emotionAmount = opts_.emotionAmount; }
+    if (opts_.headMotion >= 0) pipe.lipSync.headMotion = opts_.headMotion;
+    if (opts_.gazeMotion >= 0) pipe.lipSync.gazeMotion = opts_.gazeMotion;
+    meshRenderer.shadeMode = MeshRenderer::ShadeMode(std::clamp(opts_.shadeMode, 0, 4));
     loadModel(opts_.modelPath);
+    if (opts_.gazeYaw != 0.0f || opts_.gazePitch != 0.0f) pipe.rig.setGaze(opts_.gazeYaw, opts_.gazePitch);
     bool wantClip = !opts_.audioPath.empty() || opts_.autoGenerate || !opts_.exportOnStart.empty() || opts_.renderFrames > 0;
     if (wantClip) loadAudio(opts_.audioPath);
     if (opts_.autoGenerate || !opts_.exportOnStart.empty() || opts_.renderFrames > 0) generate();
@@ -165,6 +170,7 @@ void Application::handleViewportInput() {
         if (ImGui::IsKeyPressed(ImGuiKey_W)) tool = Tool::AddPoint;
         if (ImGui::IsKeyPressed(ImGuiKey_E)) tool = Tool::MovePoint;
         if (ImGui::IsKeyPressed(ImGuiKey_Space) && pipe.clip.duration > 0) playing = !playing;
+        for (int k = 0; k < 5; ++k) if (ImGui::IsKeyPressed(ImGuiKey(int(ImGuiKey_1) + k))) meshRenderer.shadeMode = MeshRenderer::ShadeMode(k);
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z)) undo();
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Y)) redo();
         if (ImGui::IsKeyPressed(ImGuiKey_Delete) && selectedPoint >= 0) { pushUndo(); pipe.rig.removeControlPoint(selectedPoint); selectedPoint = -1; }

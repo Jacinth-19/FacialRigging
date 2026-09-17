@@ -56,3 +56,8 @@
 #define ICON_MD_HIGHLIGHT_ALT "\xee\xbd\x92"  // highlight_alt U+EF52
 #define ICON_MD_FRONT_HAND "\xee\x9d\xa9"  // front_hand U+E769
 #define ICON_MD_SYNC "\xee\x98\xa7"  // sync U+E627
+#define ICON_MD_MOOD "\xee\x9f\xb2"  // mood U+E7F2
+#define ICON_MD_REMOVE_RED_EYE "\xee\x90\x97"  // remove_red_eye U+E417
+#define ICON_MD_GRADIENT "\xee\x8f\xa9"  // gradient U+E3E9
+#define ICON_MD_FILE_UPLOAD "\xee\x8b\x86"  // file_upload U+E2C6
+#define ICON_MD_THERMOSTAT "\xef\x81\xb6"  // thermostat U+F076

@@ -3,6 +3,8 @@
 //          --variation "Increase smile" --variation "Raise eyebrows"
 #include "app/pipeline.h"
 #include "core/obj_io.h"
+#include "export/exporter.h"
+#include <cctype>
 #include "audio/live_capture.h"
 #include <chrono>
 #include <thread>
@@ -21,7 +23,7 @@ Options:
   --model <file.obj>        3D face model (default: procedural head)
   --audio <file.wav>        speech clip (default: synthetic test speech)
   --output <pattern>        output base name (default: out/scene)
-  --format <fbx|glb|gltf>   export format (default: glb; fbx falls back to glb without the SDK)
+  --format <fbx|glb|gltf|json>  export format (default: glb; fbx falls back to glb without the SDK; json = mesh-free curves)
   --variation <text>        add a variation export (repeatable), e.g. "Increase smile", "intensity=1.3"
   --variations <n>          shorthand: n default variations (smile, brows, subtle, exaggerated)
   --mapper <rules|ml>       viseme mapper (default rules; ml needs a LibTorch build)
@@ -31,6 +33,10 @@ Options:
   --live-test <dev> <sec>   run live capture from device index (-1 default, -2 built-in test signal) and print visemes
   --fps <n>                 bake frame rate (default 30)
   --intensity <f>           global mouth intensity (default 1.0)
+  --emotion <name> [<f>]    performance layer: neutral|happy|sad|angry|surprised|disgusted, amount 0..1 (default 0.8)
+  --head-motion <f>         audio-driven head nods / sway 0..1 (default 0.5)
+  --gaze-motion <f>         eye saccades 0..1, needs eyeball parts (default 0.5)
+  --clip-in <file.json>     skip generation; load a clip JSON (from --format json) and export it
   --save-audio <file.wav>   write the (synthetic) audio next to the export
   --save-model <file.obj>   write the (procedural) bind mesh as OBJ
   --dump-features           print per-frame features to stdout
@@ -39,7 +45,7 @@ Options:
 }
 
 int main(int argc, char** argv) {
-    std::string model, audioPath, output = "out/scene", format = "glb", saveAudio, saveModel;
+    std::string model, audioPath, output = "out/scene", format = "glb", saveAudio, saveModel, clipIn;
     std::vector<std::string> variationTexts;
     bool dump = false;
     Pipeline pipe;
@@ -85,6 +91,10 @@ int main(int argc, char** argv) {
         }
         else if (a == "--fps") pipe.lipSync.frameRate = float(std::atof(next().c_str()));
         else if (a == "--intensity") pipe.lipSync.intensity = float(std::atof(next().c_str()));
+        else if (a == "--emotion") { pipe.lipSync.emotion = next(); pipe.lipSync.emotionAmount = 0.8f; if (i + 1 < argc && std::isdigit((unsigned char)argv[i + 1][0])) pipe.lipSync.emotionAmount = float(std::atof(next().c_str())); }
+        else if (a == "--head-motion") pipe.lipSync.headMotion = float(std::atof(next().c_str()));
+        else if (a == "--gaze-motion") pipe.lipSync.gazeMotion = float(std::atof(next().c_str()));
+        else if (a == "--clip-in") clipIn = next();
         else if (a == "--save-audio") saveAudio = next();
         else if (a == "--save-model") saveModel = next();
         else if (a == "--dump-features") dump = true;
@@ -95,9 +105,15 @@ int main(int argc, char** argv) {
     if (!pipe.loadModel(model, &err)) { std::fprintf(stderr, "error: %s\n", err.c_str()); return 1; }
     pipe.buildDefaultRig();
     if (!saveModel.empty()) saveObj(saveModel, pipe.rig.mesh, &err);
-    if (!pipe.loadAudio(audioPath, &err)) { std::fprintf(stderr, "error: %s\n", err.c_str()); return 1; }
-    if (!saveAudio.empty()) saveWav(saveAudio, pipe.audio, &err);
-    if (!pipe.generateAnimation()) { std::fprintf(stderr, "error: animation generation failed\n"); return 1; }
+    if (!clipIn.empty()) {
+        std::vector<AnimationClip> clips;
+        if (!loadClipsJson(clipIn, clips, &err) || clips.empty()) { std::fprintf(stderr, "error: %s\n", err.empty() ? "no clips in file" : err.c_str()); return 1; }
+        pipe.clip = clips[0]; std::printf("loaded clip '%s' (%.2f s, %d frames) from %s\n", pipe.clip.name.c_str(), pipe.clip.duration, pipe.clip.frameCount(), clipIn.c_str());
+    } else {
+        if (!pipe.loadAudio(audioPath, &err)) { std::fprintf(stderr, "error: %s\n", err.c_str()); return 1; }
+        if (!saveAudio.empty()) saveWav(saveAudio, pipe.audio, &err);
+        if (!pipe.generateAnimation()) { std::fprintf(stderr, "error: animation generation failed\n"); return 1; }
+    }
     if (dump) {
         std::printf("time,rms,loudness,pitch,voicing,centroid,onset,mfcc0,mfcc1,mfcc2\n");
         for (auto& f : pipe.features.frames)

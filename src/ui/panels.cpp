@@ -11,6 +11,9 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <glm/gtc/quaternion.hpp>
+#include <glm/gtx/quaternion.hpp>
+#include "export/exporter.h"
+#include "anim/lipsync_generator.h"
 #include <glm/gtc/matrix_transform.hpp>
 
 namespace fr {
@@ -28,8 +31,10 @@ struct UiState {
     bool symmetry = true; float centreLine = 0.0f; int upAxisChoice = 0;
     // rig
     bool showParts = true;
+    int emotionSel = 0; float emotionAmt = 0.8f; float gazeYaw = 0.0f, gazePitch = 0.0f;
+    char clipBuf[512] = "out/clip.json";
     // export
-    bool showExportDialog = false;
+    bool showExportDialog = false, showImportClip = false;
     std::vector<AudioDevice> devs; bool devsListed = false; int devSel = -1; std::string devErr;
     Fonts fonts; float scale = 1.0f;
 };
@@ -51,6 +56,7 @@ void menuBar(Application& app) {
             if (ImGui::MenuItem("Load procedural head")) { ui.modelBuf[0] = 0; app.loadModel(""); ui.stepDone[StepLoad] = true; ui.step = StepCheck; }
             ImGui::Separator();
             if (ImGui::MenuItem("Export...", nullptr, false, app.pipe.rig.mesh.vertexCount() > 0)) ui.showExportDialog = true;
+            if (ImGui::MenuItem("Import clip JSON...", nullptr, false, app.pipe.rig.mesh.vertexCount() > 0)) { ui.step = StepAnim; ui.showImportClip = true; }
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Edit")) {
@@ -72,6 +78,14 @@ void menuBar(Application& app) {
             ImGui::MenuItem("Bones", nullptr, &app.showBones);
             ImGui::MenuItem("Labels", nullptr, &app.showLabels);
             ImGui::MenuItem("GPU deformation", nullptr, &app.meshRenderer.gpuDeform);
+            ImGui::Separator();
+            using SM = MeshRenderer::ShadeMode;
+            auto& sm = app.meshRenderer.shadeMode;
+            if (ImGui::MenuItem("Shading: Lit", "1", sm == SM::Lit)) sm = SM::Lit;
+            if (ImGui::MenuItem("Shading: Normals", "2", sm == SM::Normals)) sm = SM::Normals;
+            if (ImGui::MenuItem("Shading: Bone weights", "3", sm == SM::BoneWeights)) sm = SM::BoneWeights;
+            if (ImGui::MenuItem("Shading: Blendshape influence", "4", sm == SM::ShapeInfluence)) sm = SM::ShapeInfluence;
+            if (ImGui::MenuItem("Shading: Displacement", "5", sm == SM::Displacement)) sm = SM::Displacement;
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Help")) {
@@ -346,8 +360,13 @@ void pageRig(Application& app) {
                 if (filter[0] && bs.name.find(filter) == std::string::npos) continue;
                 ImGui::PushID(int(i));
                 if (i == std::size(shapes::All) && rig.blendShapes.size() > std::size(shapes::All)) ImGui::SeparatorText("Authored (ARKit / ICT)");
-                ImGui::SetNextItemWidth(-1);
+                ImGui::SetNextItemWidth(-26 * S());
                 if (ImGui::SliderFloat("##w", &bs.weight, 0.0f, 1.0f, bs.name.c_str())) rig.syncControlPointsFromRig();
+                ImGui::SameLine();
+                { bool on = app.meshRenderer.shadeMode == MeshRenderer::ShadeMode::ShapeInfluence && app.meshRenderer.heatShape == int(i);
+                  if (IconButton(ICON_MD_GRADIENT, on, "Show this shape's influence as a heat map", ui.fonts, 22.0f)) {
+                      if (on) { app.meshRenderer.shadeMode = MeshRenderer::ShadeMode::Lit; app.meshRenderer.heatShape = -1; }
+                      else { app.meshRenderer.shadeMode = MeshRenderer::ShadeMode::ShapeInfluence; app.meshRenderer.heatShape = int(i); } } }
                 ImGui::PopID();
             }
             ImGui::EndChild();
@@ -359,9 +378,39 @@ void pageRig(Application& app) {
                 Bone& b = rig.skeleton.bones[i]; ImGui::PushID(int(i) + 1000);
                 glm::vec3 e = glm::degrees(glm::eulerAngles(b.poseRotation));
                 ImGui::TextColored(kText, "%s%s", b.name.c_str(), b.parent >= 0 ? "" : "  (root)");
+                ImGui::SameLine(ImGui::GetContentRegionAvail().x - 4 * S());
+                { bool on = app.meshRenderer.shadeMode == MeshRenderer::ShadeMode::BoneWeights && app.meshRenderer.heatBone == int(i);
+                  if (IconButton(ICON_MD_THERMOSTAT, on, "Show skin weights for this bone", ui.fonts, 22.0f)) {
+                      app.meshRenderer.shadeMode = on ? MeshRenderer::ShadeMode::Lit : MeshRenderer::ShadeMode::BoneWeights; app.meshRenderer.heatBone = int(i); } }
                 ImGui::SetNextItemWidth(-1); if (ImGui::SliderFloat3("##rot", &e.x, -45.0f, 45.0f, "%.1f deg")) b.poseRotation = glm::quat(glm::radians(e));
                 ImGui::SetNextItemWidth(-1); if (ImGui::DragFloat3("##pos", &b.poseTranslation.x, 0.002f, -0.3f, 0.3f, "%.3f")) rig.syncControlPointsFromRig();
                 ImGui::PopID();
+            }
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Expression")) {
+            SectionLabel("Emotion preset :");
+            std::vector<const char*> names; for (int i = 0; i < kExpressionPresetCount; ++i) names.push_back(kExpressionPresets[i].name);
+            ImGui::SetNextItemWidth(-1); ImGui::Combo("##emo", &ui.emotionSel, names.data(), int(names.size()));
+            ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##emoAmt", &ui.emotionAmt, 0.0f, 1.0f, "Amount  %.2f");
+            if (WideButton(ICON_MD_MOOD "  Apply to pose", ImVec2(-1, 28 * S()))) {
+                app.pushUndo(); const ExpressionPreset& e = kExpressionPresets[ui.emotionSel]; const float a = ui.emotionAmt;
+                auto set = [&](const char* n, float v) { rig.setBlendWeight(n, v * a); };
+                set(shapes::MouthSmile, e.smile); set(shapes::MouthFrown, e.frown); set(shapes::BrowRaise, e.browRaise); set(shapes::BrowDown, e.browDown);
+                set(shapes::EyeWide, e.eyeWide); set(shapes::JawOpen, e.jaw); set(shapes::LipsPress, e.lipsPress); set(shapes::MouthPucker, e.pucker);
+                rig.syncControlPointsFromRig();
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Also usable as an export variation: type the preset name (e.g. \"angry=0.6\") in the variations box.");
+            Rule();
+            SectionLabel("Gaze :");
+            if (!rig.hasEyeBones()) ImGui::TextColored(kTextDim, "No separate eyeballs on this model - gaze needs EyeL / EyeR parts (e.g. the ICT-FaceKit head).");
+            else {
+                bool ch = false;
+                ImGui::SetNextItemWidth(-1); ch |= ImGui::SliderFloat("##gy", &ui.gazeYaw, -35.0f, 35.0f, "Look left/right  %.0f deg");
+                ImGui::SetNextItemWidth(-1); ch |= ImGui::SliderFloat("##gp", &ui.gazePitch, -25.0f, 25.0f, "Look down/up  %.0f deg");
+                if (ch) rig.setGaze(ui.gazeYaw, ui.gazePitch);
+                if (WideButton(ICON_MD_REMOVE_RED_EYE "  Look at camera", ImVec2(-1, 28 * S()))) { rig.lookAt(app.camera.position()); ui.gazeYaw = ui.gazePitch = 0; }
+                ImGui::SameLine(); if (WideButton("Centre", ImVec2(-1, 28 * S()))) { ui.gazeYaw = ui.gazePitch = 0; rig.setGaze(0, 0); }
             }
             ImGui::EndTabItem();
         }
@@ -445,6 +494,16 @@ void pageLipSync(Application& app) {
     ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##smile", &p.lipSync.smileBias, 0.0f, 1.0f, "Smile bias  %.2f");
     ImGui::SetNextItemWidth(-1); ImGui::SliderInt("##smooth", &p.lipSync.smoothingRadiusFrames, 0, 5, "Smoothing  %d frames");
     ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##fps", &p.lipSync.frameRate, 24.0f, 60.0f, "Frame rate  %.0f fps");
+    SectionLabel("Performance layer :");
+    {
+        int sel = 0; std::vector<const char*> names;
+        for (int i = 0; i < kExpressionPresetCount; ++i) { names.push_back(kExpressionPresets[i].name); if (p.lipSync.emotion == kExpressionPresets[i].name) sel = i; }
+        ImGui::SetNextItemWidth(-1); if (ImGui::Combo("##lsEmo", &sel, names.data(), int(names.size()))) p.lipSync.emotion = names[size_t(sel)];
+        ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##lsEmoAmt", &p.lipSync.emotionAmount, 0.0f, 1.0f, "Emotion amount  %.2f");
+        ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##head", &p.lipSync.headMotion, 0.0f, 1.0f, "Head nods / sway  %.2f");
+        ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##gaze", &p.lipSync.gazeMotion, 0.0f, 1.0f, "Eye saccades  %.2f");
+        if (ImGui::IsItemHovered() && !p.rig.hasEyeBones()) ImGui::SetTooltip("This model has no eyeball parts; saccades need EyeL / EyeR bones.");
+    }
     ImGui::Dummy(ImVec2(0, 4 * S()));
     if (PrimaryButton(ICON_MD_ANIMATION "  Generate Animation", ImVec2(-1, 36 * S()))) { app.generate(); if (p.clip.duration > 0) { ui.stepDone[StepLipSync] = true; ui.step = StepAnim; } }
 }
@@ -465,6 +524,26 @@ void pageAnim(Application& app) {
         SectionLabel("Curves :");
         auto curve = [&](const char* n) { if (auto* c = p.clip.findBlendCurve(n)) { ImGui::PlotLines(("##" + std::string(n)).c_str(), c->values.data(), int(c->values.size()), 0, n, 0, 1, ImVec2(-1, 38 * S())); } };
         curve(shapes::JawOpen); curve(shapes::MouthSmile); curve(shapes::MouthPucker); curve(shapes::BrowRaise);
+        if (auto* c = p.clip.findBlendCurve(shapes::MouthFrown)) { bool any = false; for (float v : c->values) any |= v > 1e-4f; if (any) curve(shapes::MouthFrown); }
+        if (auto* c = p.clip.findBlendCurve(shapes::BrowDown)) { bool any = false; for (float v : c->values) any |= v > 1e-4f; if (any) curve(shapes::BrowDown); }
+        for (const auto& bc : p.clip.boneRotations) if (!bc.empty()) {
+            std::vector<float> deg; deg.reserve(bc.values.size()); for (const auto& q : bc.values) deg.push_back(glm::degrees(glm::angle(q)));
+            ImGui::PlotLines(("##" + bc.target).c_str(), deg.data(), int(deg.size()), 0, (bc.target + " (deg)").c_str(), 0, bc.target == "Jaw" ? 20.0f : 12.0f, ImVec2(-1, 32 * S()));
+        }
+    }
+    Rule();
+    SectionLabel("Clip JSON :");
+    ImGui::SetNextItemWidth(-1); ImGui::InputTextWithHint("##clip", "out/clip.json", ui.clipBuf, sizeof ui.clipBuf);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Mesh-free curves with ARKit aliases - load onto another rig or hand-edit.");
+    {
+        float bw = (ImGui::GetContentRegionAvail().x - 8 * S()) / 2.0f;
+        if (WideButton(ICON_MD_FILE_UPLOAD "  Import", ImVec2(bw, 28 * S())) || ui.showImportClip) {
+            ui.showImportClip = false; std::vector<AnimationClip> in; std::string err;
+            if (loadClipsJson(ui.clipBuf, in, &err) && !in.empty()) { app.pushUndo(); p.clip = in[0]; app.playTime = 0; app.playing = true; p.clip.applyTo(p.rig, 0); app.status = "Imported clip '" + p.clip.name + "' (" + std::to_string(in.size()) + " in file)"; ui.stepDone[StepLipSync] = true; }
+            else app.status = "Import failed: " + (err.empty() ? std::string("no clips in file") : err);
+        }
+        ImGui::SameLine();
+        if (WideButton(ICON_MD_SAVE "  Save", ImVec2(bw, 28 * S()), p.clip.duration > 0)) { std::string err; app.status = p.exportClip(p.clip, ui.clipBuf, &err) ? "Saved clip JSON " + std::string(ui.clipBuf) : "Save failed: " + err; }
     }
     Rule();
     SectionLabel("Export :");
@@ -495,6 +574,7 @@ void exportDialog(Application& app) {
         if (WideButton(ICON_MD_FILE_DOWNLOAD "  Export FBX...", ImVec2(-1, 36 * S()), FR_HAVE_FBX_SDK || FR_HAVE_ASSIMP)) { app.exportNow(withExt("fbx"), vars()); ui.stepDone[StepAnim] = true; ImGui::CloseCurrentPopup(); }
         if (WideButton(ICON_MD_FILE_DOWNLOAD "  Export glTF binary (.glb)...", ImVec2(-1, 36 * S()))) { app.exportNow(withExt("glb"), vars()); ui.stepDone[StepAnim] = true; ImGui::CloseCurrentPopup(); }
         if (WideButton(ICON_MD_FILE_DOWNLOAD "  Export glTF (.gltf + .bin)...", ImVec2(-1, 36 * S()))) { app.exportNow(withExt("gltf"), vars()); ui.stepDone[StepAnim] = true; ImGui::CloseCurrentPopup(); }
+        if (WideButton(ICON_MD_FILE_DOWNLOAD "  Export clip JSON (curves + ARKit names)...", ImVec2(-1, 36 * S()))) { app.exportNow(withExt("json"), vars()); ui.stepDone[StepAnim] = true; ImGui::CloseCurrentPopup(); }
         if (WideButton(ICON_MD_SAVE "  Save current pose only...", ImVec2(-1, 36 * S()))) { std::string err; AnimationClip c = snapshotPose(app.pipe.rig); app.status = app.pipe.exportClip(c, ui.exportBuf, &err) ? "Exported pose to " + std::string(ui.exportBuf) : "Export failed: " + err; ImGui::CloseCurrentPopup(); }
         ImGui::Spacing();
         if (ImGui::Button("Cancel", ImVec2(-1, 26 * S()))) ImGui::CloseCurrentPopup();
@@ -558,6 +638,9 @@ void viewportOverlay(Application& app) {
     if (iconBtn(ICON_MD_OPEN_WITH, app.tool == Application::Tool::MovePoint, "Move control point (E)")) app.tool = Application::Tool::MovePoint;
     ImGui::Dummy(ImVec2(0, 6 * S()));
     if (iconBtn(ICON_MD_GRID_ON, app.meshRenderer.wireframe, "Wireframe")) app.meshRenderer.wireframe = !app.meshRenderer.wireframe;
+    { using SM = MeshRenderer::ShadeMode; auto& sm = app.meshRenderer.shadeMode;
+      static const char* tips[] = {"Shading: Lit (click to cycle)", "Shading: Normals", "Shading: Bone weights", "Shading: Blendshape influence", "Shading: Displacement"};
+      if (iconBtn(ICON_MD_GRADIENT, sm != SM::Lit, tips[int(sm)])) sm = SM((int(sm) + 1) % 5); }
     if (iconBtn(ICON_MD_ACCESSIBILITY_NEW, app.showBones, "Show bones")) app.showBones = !app.showBones;
     if (iconBtn(ICON_MD_HIGHLIGHT_ALT, app.showPoints, "Show control points")) app.showPoints = !app.showPoints;
     if (iconBtn(ICON_MD_LABEL, app.showLabels, "Show labels")) app.showLabels = !app.showLabels;

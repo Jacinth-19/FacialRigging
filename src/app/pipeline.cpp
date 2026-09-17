@@ -1,6 +1,7 @@
 #include "app/pipeline.h"
 #include "core/obj_io.h"
 #include "export/exporter.h"
+#include "audio/ml_viseme_mapper.h"
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -44,6 +45,8 @@ bool Pipeline::loadModel(const std::string& path, std::string* error) {
     else {
         std::string err;
         if (!loadObj(path, m, &err)) { if (error) *error = err; note("Model load failed: " + err); return false; }
+        bool zUp = modelUpAxis == UpAxis::Z || (modelUpAxis == UpAxis::Auto && m.looksZUp());
+        if (zUp) { m.zUpToYUp(); note("Model treated as Z-up: rotated to Y-up (override with --up y)"); }
         m.normalizeToUnit();
         note("Loaded " + path + " (" + std::to_string(m.vertexCount()) + " verts, " + std::to_string(m.triangleCount()) + " tris)");
     }
@@ -65,11 +68,28 @@ bool Pipeline::loadAudio(const std::string& path, std::string* error) {
     return true;
 }
 
+std::shared_ptr<VisemeMapper> Pipeline::makeMapper(std::string* noteOut) const {
+    if (mapperKind == MapperKind::Ml) {
+        auto ml = std::make_shared<MlVisemeMapper>();
+        std::string err;
+        bool ok = mlModelPath.empty() ? ml->loadBuiltin(&err) : ml->load(mlModelPath, &err);
+        if (ok) { if (noteOut) *noteOut = "ML viseme mapper: " + ml->modelInfo(); return ml; }
+        if (noteOut) *noteOut = "ML mapper unavailable (" + err + "); using rule-based mapper";
+    } else if (noteOut) *noteOut = "rule-based viseme mapper";
+    return std::make_shared<VisemeMapper>();
+}
+
 bool Pipeline::generateAnimation() {
     if (audio.samples.empty()) { note("No audio loaded"); return false; }
     if (rig.blendShapes.empty()) buildDefaultRig();
+    std::string mnote;
+    auto mapper = makeMapper(&mnote);
+    note(mnote);
+    FeatureExtractor fx;
+    features = fx.extract(audio);
+    auto visemes = mapper->map(features);
     LipSyncGenerator gen(lipSync);
-    clip = gen.generate(audio, rig, &features);
+    clip = gen.generate(features, visemes, rig);
     int onsets = 0; for (auto& f : features.frames) onsets += f.onset;
     note("Generated clip: " + std::to_string(clip.frameCount()) + " frames @ " + std::to_string(int(clip.frameRate)) + " fps, " + std::to_string(features.frames.size()) + " audio frames, " + std::to_string(onsets) + " onsets");
     return true;

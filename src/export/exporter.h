@@ -41,8 +41,17 @@ public:
     bool exportScene(const Rig&, const std::vector<AnimationClip>&, const std::string&, const ExportOptions&, std::string*) override;
 };
 
-/// Picks an exporter by file extension (".fbx" / ".glb" / ".gltf"). Falls back to glTF
-/// when FBX is requested but the SDK is not compiled in (and reports it via `note`).
+/// FBX through Assimp's FBX writer (binary or ASCII). Always compiled; no proprietary SDK.
+class AssimpFbxExporter : public Exporter {
+public:
+    std::string formatName() const override { return "FBX (Assimp)"; }
+    std::string fileExtension() const override { return ".fbx"; }
+    bool available() const override;
+    bool exportScene(const Rig&, const std::vector<AnimationClip>&, const std::string&, const ExportOptions&, std::string*) override;
+};
+
+/// Picks an exporter by file extension (".fbx" / ".glb" / ".gltf"). For ".fbx" the Autodesk SDK
+/// exporter is preferred when compiled in, otherwise the Assimp FBX writer; glTF is the last resort.
 std::unique_ptr<Exporter> makeExporterForPath(const std::string& path, std::string* note = nullptr);
 
 } // namespace fr

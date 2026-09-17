@@ -5,6 +5,7 @@
 #include "audio/wav_io.h"
 #include "rig/rig.h"
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -30,6 +31,13 @@ public:
     AnimationClip clip;
     LipSyncSettings lipSync;
     std::vector<std::string> log;
+
+    enum class MapperKind { RuleBased, Ml };
+    MapperKind mapperKind = MapperKind::RuleBased;
+    std::string mlModelPath;
+    enum class UpAxis { Auto, Y, Z };
+    UpAxis modelUpAxis = UpAxis::Auto;            ///< how to interpret imported OBJ orientation                      ///< TorchScript .pt; empty -> built-in MLP
+    std::shared_ptr<VisemeMapper> makeMapper(std::string* note = nullptr) const;
 
     bool loadModel(const std::string& path, std::string* error = nullptr); ///< empty path -> procedural head
     void buildDefaultRig();

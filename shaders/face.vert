@@ -1,4 +1,4 @@
-#version 330 core
+// No #version here: the app prepends '#version 330 core' or '#version 300 es' (+precision).
 // GPU path: linear blend skinning (4 influences) + blendshape deltas from a texture buffer.
 layout(location = 0) in vec3 inPos;
 layout(location = 1) in vec3 inNormal;
@@ -16,7 +16,8 @@ uniform int  u_BoneCount;
 uniform int  u_ShapeCount;
 uniform int  u_VertexCount;
 uniform float u_BlendWeights[MAX_SHAPES];
-uniform samplerBuffer u_ShapeDeltas;   // vec3 per (shape, vertex): index = shape * vertexCount + vertex
+uniform sampler2D u_ShapeDeltas;      // RGB32F 2D texture, vec3 per (shape, vertex): index = shape * vertexCount + vertex
+uniform int  u_ShapeTexWidth;
 uniform int  u_UseCpuPositions;        // 1 -> positions already deformed on CPU (free-form handles), skip GPU deform
 
 out vec3 vNormal;
@@ -37,7 +38,8 @@ void main() {
         for (int s = 0; s < u_ShapeCount; ++s) {
             float w = u_BlendWeights[s];
             if (abs(w) < 1e-5) continue;
-            pos += w * texelFetch(u_ShapeDeltas, s * u_VertexCount + gl_VertexID).xyz;
+            int idx = s * u_VertexCount + gl_VertexID;
+            pos += w * texelFetch(u_ShapeDeltas, ivec2(idx % u_ShapeTexWidth, idx / u_ShapeTexWidth), 0).xyz;
         }
     }
     vec4 world = u_Model * vec4(pos, 1.0);

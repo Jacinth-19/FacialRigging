@@ -1,6 +1,8 @@
 #include "ui/panels.h"
 #include "app/application.h"
 #include "audio/viseme_mapper.h"
+#include "audio/ml_viseme_mapper.h"
+#include <algorithm>
 #include <imgui.h>
 #include <glm/gtc/quaternion.hpp>
 #include <cstring>
@@ -173,8 +175,19 @@ void audioPanel(Application& app) {
     ImGui::SliderFloat("Smile bias", &p.lipSync.smileBias, 0.0f, 1.0f);
     ImGui::SliderInt("Smoothing (frames)", &p.lipSync.smoothingRadiusFrames, 0, 5);
     ImGui::SliderFloat("Frame rate", &p.lipSync.frameRate, 24.0f, 60.0f, "%.0f");
+    {
+        int mk = p.mapperKind == Pipeline::MapperKind::Ml ? 1 : 0;
+        ImGui::RadioButton("Rule-based mapper", &mk, 0); ImGui::SameLine();
+        ImGui::BeginDisabled(!MlVisemeMapper::available());
+        ImGui::RadioButton("ML mapper (LibTorch)", &mk, 1);
+        ImGui::EndDisabled();
+        if (!MlVisemeMapper::available() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Build with -DFR_WITH_TORCH=ON -DTORCH_ROOT=<libtorch>");
+        p.mapperKind = mk ? Pipeline::MapperKind::Ml : Pipeline::MapperKind::RuleBased;
+        static char ptBuf[512] = ""; static bool ptInit = false;
+        if (!ptInit) { std::strncpy(ptBuf, p.mlModelPath.c_str(), sizeof ptBuf - 1); ptInit = true; }
+        if (mk) { if (ImGui::InputText("TorchScript .pt (empty = built-in MLP)", ptBuf, sizeof ptBuf)) p.mlModelPath = ptBuf; }
+    }
     if (ImGui::Button("Generate animation")) app.generate();
-    ImGui::SameLine(); ImGui::TextDisabled("rule-based viseme mapper");
     if (p.clip.frameCount() > 1 && p.clip.duration > 0) {
         ImGui::Separator();
         ImGui::Text("Clip '%s': %d frames @ %.0f fps", p.clip.name.c_str(), p.clip.frameCount(), p.clip.frameRate);
@@ -189,10 +202,35 @@ void audioPanel(Application& app) {
     ImGui::End();
 }
 
+void livePanel(Application& app) {
+    ImGui::Begin("Live Microphone");
+    if (!LiveCapture::available()) ImGui::TextDisabled("PortAudio not available in this build (FR_WITH_PORTAUDIO=OFF)");
+    static std::vector<AudioDevice> devs; static bool listed = false; static int sel = -1; static std::string listErr;
+    if (!listed || ImGui::Button("Refresh devices")) { devs = LiveCapture::listInputDevices(&listErr); listed = true; }
+    if (devs.empty()) ImGui::TextDisabled("No input devices: %s", listErr.c_str());
+    else {
+        std::string cur = sel < 0 ? "(default)" : devs[std::min<size_t>(size_t(sel), devs.size() - 1)].name;
+        if (ImGui::BeginCombo("Device", cur.c_str())) {
+            if (ImGui::Selectable("(default)", sel < 0)) sel = -1;
+            for (size_t i = 0; i < devs.size(); ++i) if (ImGui::Selectable(devs[i].name.c_str(), sel == int(i))) sel = int(i);
+            ImGui::EndCombo();
+        }
+    }
+    if (ImGui::Button(app.liveEnabled ? "Stop capture" : "Start capture")) app.toggleLive(sel < 0 ? -1 : devs[size_t(sel)].index);
+    ImGui::SameLine(); ImGui::TextDisabled("%s", app.liveEnabled ? "running" : (app.liveError.empty() ? "stopped" : app.liveError.c_str()));
+    if (app.liveEnabled) {
+        ImGui::ProgressBar(std::min(1.0f, app.live.inputLevel() * 3.0f), ImVec2(-1, 0), "input level");
+        if (!app.liveWave.empty()) ImGui::PlotLines("##livewave", app.liveWave.data(), int(app.liveWave.size()), 0, "last 2 s", -1.0f, 1.0f, ImVec2(-1, 60));
+        ImGui::Text("Viseme: %s", visemeName(app.liveViseme.dominant()));
+        for (size_t i = 0; i < app.liveViseme.weights.size(); ++i) { ImGui::ProgressBar(app.liveViseme.weights[i], ImVec2(120, 0), ""); ImGui::SameLine(); ImGui::TextUnformatted(visemeName(Viseme(i))); }
+    }
+    ImGui::End();
+}
+
 void exportPanel(Application& app) {
     ImGui::Begin("Export");
     ImGui::InputText("Output path", exportBuf, sizeof exportBuf);
-    ImGui::TextDisabled(FR_HAVE_FBX_SDK ? "FBX SDK available: .fbx / .glb / .gltf" : ".glb / .gltf (FBX SDK not compiled in; .fbx falls back to .glb)");
+    ImGui::TextDisabled(FR_HAVE_FBX_SDK ? "FBX SDK: .fbx / .glb / .gltf" : FR_HAVE_ASSIMP ? "Assimp FBX writer: .fbx / .glb / .gltf" : ".glb / .gltf (no FBX writer compiled in; .fbx falls back to .glb)");
     ImGui::InputText("Variations (; separated)", variationBuf, sizeof variationBuf);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("e.g. \"Increase smile; Raise eyebrows; intensity=1.4; subtle\"");
     if (ImGui::Button("Export clip (+ variations)")) {
@@ -213,11 +251,30 @@ void exportPanel(Application& app) {
 }
 } // namespace
 
+void defaultLayout() {
+    // First run (no imgui.ini yet): tile the panels along the left/right edges so the viewport stays visible.
+    ImGuiViewport* vp = ImGui::GetMainViewport();
+    const float W = vp->WorkSize.x, H = vp->WorkSize.y, colW = std::min(420.0f, W * 0.34f);
+    auto place = [&](const char* name, float x, float y, float w, float h) {
+        ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + x, vp->WorkPos.y + y), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(w, h), ImGuiCond_FirstUseEver);
+        ImGui::Begin(name); ImGui::End();
+    };
+    place("Toolbar", colW + 10, 10, 0, 0);
+    place("Control Points", 0, 0, colW, H * 0.45f);
+    place("Rig", 0, H * 0.45f, colW, H * 0.55f);
+    place("Audio & Animation", W - colW, 0, colW, H * 0.55f);
+    place("Live Microphone", W - colW, H * 0.55f, colW, H * 0.2f);
+    place("Export", W - colW, H * 0.75f, colW, H * 0.25f);
+}
+
 void drawPanels(Application& app) {
+    defaultLayout();
     toolbar(app);
     controlPointsPanel(app);
     rigPanel(app);
     audioPanel(app);
+    livePanel(app);
     exportPanel(app);
     if (!app.status.empty()) {
         ImGuiViewport* vp = ImGui::GetMainViewport();

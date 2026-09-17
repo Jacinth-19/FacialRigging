@@ -66,10 +66,43 @@ TEST_CASE("glTF exporter writes a valid GLB with skin, morph targets and animati
     CHECK(std::ifstream("/tmp/fr_export_test.bin").good());
 }
 
-TEST_CASE("exporter factory falls back from FBX when SDK missing") {
+TEST_CASE("exporter factory picks an FBX writer when available, else glTF") {
     std::string note;
     auto ex = makeExporterForPath("foo.fbx", &note);
     REQUIRE(ex);
-    if (!FR_HAVE_FBX_SDK) { CHECK(ex->fileExtension() == ".glb"); CHECK_FALSE(note.empty()); }
-    else CHECK(ex->fileExtension() == ".fbx");
+    if (!FR_HAVE_FBX_SDK && !FR_HAVE_ASSIMP) { CHECK(ex->fileExtension() == ".glb"); CHECK_FALSE(note.empty()); }
+    else { CHECK(ex->fileExtension() == ".fbx"); CHECK(note.empty()); }
 }
+
+#if FR_HAVE_ASSIMP
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+TEST_CASE("Assimp FBX exporter round-trips mesh, skin, blendshapes and animation") {
+    Pipeline p;
+    REQUIRE(p.loadModel(""));
+    p.buildDefaultRig();
+    REQUIRE(p.loadAudio(""));
+    REQUIRE(p.generateAnimation());
+    std::string err, written;
+    REQUIRE(p.exportClip(p.clip, "/tmp/fr_export_test.fbx", &err, &written));
+    CHECK(written == "/tmp/fr_export_test.fbx");
+    Assimp::Importer imp;
+    const aiScene* s = imp.ReadFile(written, 0);
+    REQUIRE(s != nullptr);
+    REQUIRE(s->mNumMeshes == 1);
+    const aiMesh* m = s->mMeshes[0];
+    CHECK(m->mNumFaces == p.rig.mesh.triangleCount());
+    CHECK(m->mNumBones == 2);
+    CHECK(m->mNumAnimMeshes == p.rig.blendShapes.size());
+    REQUIRE(s->mNumAnimations == 1);
+    const aiAnimation* a = s->mAnimations[0];
+    CHECK(std::string(a->mName.C_Str()) == "LipSync");
+    REQUIRE(a->mNumChannels == 1);
+    CHECK(std::string(a->mChannels[0]->mNodeName.C_Str()) == "Jaw");
+    CHECK(a->mChannels[0]->mNumRotationKeys >= 89);
+    REQUIRE(a->mNumMorphMeshChannels == 1);
+    CHECK(a->mMorphMeshChannels[0]->mNumKeys == unsigned(p.clip.frameCount()));
+    // duration in seconds must match the clip
+    CHECK(a->mDuration / a->mTicksPerSecond == Approx(p.clip.duration).margin(0.1));
+}
+#endif

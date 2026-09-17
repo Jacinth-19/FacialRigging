@@ -37,7 +37,7 @@ void GizmoRenderer::flush(const glm::mat4& vp, float pointSize, bool depthTest) 
     shader_.use(); shader_.set("u_ViewProj", vp); shader_.set("u_PointSize", pointSize);
     glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     if (depthTest) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
-    glEnable(GL_PROGRAM_POINT_SIZE);
+    if (!glIsES()) glEnable(GL_PROGRAM_POINT_SIZE); // always on in ES
     glBindVertexArray(vao_); glBindBuffer(GL_ARRAY_BUFFER, vbo_);
     if (!lines_.empty()) {
         glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(lines_.size() * sizeof(V)), lines_.data(), GL_DYNAMIC_DRAW);

@@ -1,0 +1,103 @@
+diff --git a/code/AssetLib/FBX/FBXExporter.cpp b/code/AssetLib/FBX/FBXExporter.cpp
+index 79fa572af..09a2d60ad 100644
+--- a/code/AssetLib/FBX/FBXExporter.cpp
++++ b/code/AssetLib/FBX/FBXExporter.cpp
+@@ -1063,10 +1063,10 @@ aiMatrix4x4 get_world_transform(const aiNode* node, const aiScene* scene)
+ }
+ 
+ inline int64_t to_ktime(double ticks, const aiAnimation* anim) {
+-    if (FP_ZERO == std::fpclassify(anim->mTicksPerSecond)) {    
+-        return static_cast<int64_t>(ticks) * FBX::SECOND;
++    if (FP_ZERO == std::fpclassify(anim->mTicksPerSecond)) {
++        return static_cast<int64_t>(ticks * FBX::SECOND);
+     }
+-    return (static_cast<int64_t>(ticks / anim->mTicksPerSecond)) * FBX::SECOND;
++    return static_cast<int64_t>((ticks / anim->mTicksPerSecond) * FBX::SECOND);
+ }
+ 
+ inline int64_t to_ktime(double time) {
+@@ -1742,6 +1742,7 @@ void FBXExporter::WriteObjects ()
+         continue;
+       }
+       // make a deformer for this mesh
++      if (blendchannel_uids.size() <= mi) blendchannel_uids.resize(mScene->mNumMeshes);
+       int64_t deformer_uid = generate_uid();
+       FBX::Node dnode("Deformer");
+       dnode.AddProperties(deformer_uid, m->mName.data + FBX::SEPARATOR + "Blendshapes", "BlendShape");
+@@ -1826,6 +1827,7 @@ void FBXExporter::WriteObjects ()
+ 
+         connections.emplace_back("C", "OO", blendchannel_uid, deformer_uid);
+         connections.emplace_back("C", "OO", blendshape_uid, blendchannel_uid);
++        blendchannel_uids[mi].push_back(blendchannel_uid);
+       }
+     }
+ 
+@@ -2399,6 +2401,7 @@ void FBXExporter::WriteObjects ()
+ 
+     // AnimCurve - defines actual keyframe data.
+     // there's a separate curve for every component of every vector,
++
+     // for example a transform curvenode will have separate X/Y/Z AnimCurve's
+     for (size_t ai = 0; ai < mScene->mNumAnimations; ++ai) {
+         const aiAnimation* anim = mScene->mAnimations[ai];
+@@ -2461,6 +2464,47 @@ void FBXExporter::WriteObjects ()
+         }
+     }
+ 
++    // Morph (blendshape) weight animation: one AnimationCurveNode + AnimationCurve per target,
++    // linked to the BlendShapeChannel's "DeformPercent" property. (FacialRigging addition.)
++    for (size_t ai = 0; ai < mScene->mNumAnimations; ++ai) {
++        const aiAnimation* anim = mScene->mAnimations[ai];
++        const int64_t layer_uid = animation_layer_uids[ai];
++        for (size_t mc = 0; mc < anim->mNumMorphMeshChannels; ++mc) {
++            const aiMeshMorphAnim* ma = anim->mMorphMeshChannels[mc];
++            if (!ma->mNumKeys) continue;
++            // locate the mesh by name
++            size_t mi = mScene->mNumMeshes;
++            for (size_t k = 0; k < mScene->mNumMeshes; ++k) {
++                if (ma->mName == mScene->mMeshes[k]->mName) { mi = k; break; }
++            }
++            if (mi >= mScene->mNumMeshes || mi >= blendchannel_uids.size()) continue;
++            const std::vector<int64_t>& chans = blendchannel_uids[mi];
++            const unsigned nTargets = ma->mKeys[0].mNumValuesAndWeights;
++            for (unsigned t = 0; t < nTargets; ++t) {
++                unsigned target = ma->mKeys[0].mValues[t];
++                if (target >= chans.size()) continue;
++                std::vector<int64_t> times; std::vector<float> values;
++                times.reserve(ma->mNumKeys); values.reserve(ma->mNumKeys);
++                for (unsigned k = 0; k < ma->mNumKeys; ++k) {
++                    if (t >= ma->mKeys[k].mNumValuesAndWeights) continue;
++                    times.push_back(to_ktime(ma->mKeys[k].mTime, anim));
++                    values.push_back(float(ma->mKeys[k].mWeights[t] * 100.0));
++                }
++                int64_t cn_uid = generate_uid();
++                FBX::Node n("AnimationCurveNode");
++                n.AddProperties(cn_uid, FBX::SEPARATOR + "AnimCurveNode", "");
++                FBX::Node p("Properties70");
++                p.AddP70numberA("d|DeformPercent", values.empty() ? 0.0 : double(values[0]));
++                n.AddChild(p);
++                n.Dump(outstream, binary, 1);
++                connections.emplace_back("C", "OO", cn_uid, layer_uid);
++                connections.emplace_back("C", "OP", cn_uid, chans[target], "DeformPercent");
++                WriteAnimationCurve(outstream, values.empty() ? 0.0 : double(values[0]), times, values, cn_uid, "d|DeformPercent");
++            }
++        }
++    }
++
++
+     indent = 0;
+     object_node.End(outstream, binary, indent, true);
+ }
+diff --git a/code/AssetLib/FBX/FBXExporter.h b/code/AssetLib/FBX/FBXExporter.h
+index df9029196..b373e3781 100644
+--- a/code/AssetLib/FBX/FBXExporter.h
++++ b/code/AssetLib/FBX/FBXExporter.h
+@@ -92,6 +92,8 @@ namespace Assimp {
+         std::vector<FBX::Node> connections; // connection storage
+ 
+         std::vector<int64_t> mesh_uids;
++        // per mesh: BlendShapeChannel deformer uids, one per aiAnimMesh (for DeformPercent animation)
++        std::vector<std::vector<int64_t>> blendchannel_uids;
+         std::vector<int64_t> material_uids;
+         std::map<const aiNode*,int64_t> node_uids;
+         std::map<std::string,int64_t> lights_uids;

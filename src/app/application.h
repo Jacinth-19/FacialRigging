@@ -1,5 +1,6 @@
 #pragma once
 #include "app/pipeline.h"
+#include "audio/live_capture.h"
 #include "core/camera.h"
 #include "core/raycast.h"
 #include "render/gizmo_renderer.h"
@@ -23,6 +24,14 @@ public:
         bool autoGenerate = false;        ///< run lipsync right after start
         std::string exportOnStart;        ///< if set: export to this path and quit (agent mode)
         std::vector<std::string> variations;
+        bool headless = false;            ///< GLFW null platform + EGL pbuffer (SwiftShader/Mesa) - no window
+        bool useGLES = false;             ///< request an OpenGL ES 3.0 context (implied by headless)
+        int renderFrames = 0;             ///< >0: render N frames of the clip to PPM files and quit
+        std::string framePattern = "out/frame_%03d.ppm";
+        std::string mapper = "rules";     ///< "rules" | "ml"
+        std::string modelPt;              ///< TorchScript for the ML mapper
+        std::string upAxis = "auto";      ///< auto|y|z for imported OBJ
+        bool live = false;                ///< start microphone capture on launch
     };
     explicit Application(Options o) : opts_(std::move(o)) {}
     int run();
@@ -52,6 +61,12 @@ public:
     void generate();
     void exportNow(const std::string& path, const std::vector<std::string>& variations);
     const Options& options() const { return opts_; }
+    /// Reads back the current framebuffer (RGB8) and writes a binary PPM.
+    bool saveFrame(const std::string& path) const;
+    // live microphone
+    LiveCapture live;
+    bool liveEnabled = false; std::string liveError; std::vector<float> liveWave; VisemeFrame liveViseme;
+    void toggleLive(int device = -1);
     glm::ivec2 viewportSize() const { return fbSize_; }
     /// Projects a world point to window pixels (for labels).
     bool project(const glm::vec3& world, glm::vec2& px) const;

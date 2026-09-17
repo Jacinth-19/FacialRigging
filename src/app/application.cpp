@@ -14,20 +14,33 @@ namespace fr {
 
 bool Application::initWindow() {
     glfwSetErrorCallback([](int code, const char* desc) { std::fprintf(stderr, "GLFW error %d: %s\n", code, desc); });
+    if (opts_.headless) {
+        // No display: GLFW null platform + EGL pbuffer surface (patched GLFW), driven by whatever
+        // libEGL/libGLESv2 is on the library path (SwiftShader, Mesa llvmpipe, ANGLE...).
+        glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_NULL);
+        opts_.useGLES = true;
+    }
     if (!glfwInit()) return false;
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    if (opts_.useGLES) {
+        glfwWindowHint(GLFW_CONTEXT_CREATION_API, GLFW_EGL_CONTEXT_API);
+        glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+    } else {
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+        glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 #ifdef __APPLE__
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+        glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 #endif
-    glfwWindowHint(GLFW_SAMPLES, 4);
+        glfwWindowHint(GLFW_SAMPLES, 4);
+    }
     window_ = glfwCreateWindow(opts_.width, opts_.height, "FacialRigging", nullptr, nullptr);
     if (!window_) { glfwTerminate(); return false; }
     glfwMakeContextCurrent(window_);
-    glfwSwapInterval(1);
-    if (!loadGL(reinterpret_cast<void* (*)(const char*)>(glfwGetProcAddress))) { std::fprintf(stderr, "Failed to load OpenGL 3.3 functions\n"); return false; }
-    std::printf("OpenGL %s | %s\n", glGetString(GL_VERSION), glGetString(GL_RENDERER));
+    glfwSwapInterval(opts_.headless ? 0 : 1);
+    if (!loadGL(reinterpret_cast<void* (*)(const char*)>(glfwGetProcAddress))) { std::fprintf(stderr, "Failed to load OpenGL functions\n"); return false; }
+    std::printf("OpenGL %s | %s | GLSL %s\n", glGetString(GL_VERSION), glGetString(GL_RENDERER), glGetString(GL_SHADING_LANGUAGE_VERSION));
     glfwSetWindowUserPointer(window_, this);
 
     IMGUI_CHECKVERSION();
@@ -36,7 +49,7 @@ bool Application::initWindow() {
     ImGui::StyleColorsDark();
     ImGui::GetStyle().WindowRounding = 4.0f;
     ImGui_ImplGlfw_InitForOpenGL(window_, true);
-    ImGui_ImplOpenGL3_Init("#version 330 core");
+    ImGui_ImplOpenGL3_Init(glIsES() ? "#version 300 es" : "#version 330 core");
     return true;
 }
 
@@ -44,16 +57,34 @@ int Application::run() {
     if (!initWindow()) return 1;
     std::string log;
     if (!meshRenderer.init(opts_.shaderDir, &log) || !gizmos.init(opts_.shaderDir, &log)) { std::fprintf(stderr, "Shader error:\n%s", log.c_str()); return 1; }
+    pipe.mapperKind = opts_.mapper == "ml" ? Pipeline::MapperKind::Ml : Pipeline::MapperKind::RuleBased;
+    pipe.mlModelPath = opts_.modelPt;
+    pipe.modelUpAxis = opts_.upAxis == "z" ? Pipeline::UpAxis::Z : opts_.upAxis == "y" ? Pipeline::UpAxis::Y : Pipeline::UpAxis::Auto;
     loadModel(opts_.modelPath);
-    if (!opts_.audioPath.empty() || opts_.autoGenerate || !opts_.exportOnStart.empty()) loadAudio(opts_.audioPath);
-    if (opts_.autoGenerate || !opts_.exportOnStart.empty()) generate();
+    bool wantClip = !opts_.audioPath.empty() || opts_.autoGenerate || !opts_.exportOnStart.empty() || opts_.renderFrames > 0;
+    if (wantClip) loadAudio(opts_.audioPath);
+    if (opts_.autoGenerate || !opts_.exportOnStart.empty() || opts_.renderFrames > 0) generate();
     if (!opts_.exportOnStart.empty()) {
         exportNow(opts_.exportOnStart, opts_.variations);
         for (auto& l : pipe.log) std::printf("[fr] %s\n", l.c_str());
+        if (opts_.renderFrames <= 0) glfwSetWindowShouldClose(window_, 1);
+    }
+    if (opts_.live) toggleLive();
+    lastFrameTime_ = glfwGetTime();
+    if (opts_.renderFrames > 0) {
+        // Offscreen proof-of-render: step through the clip deterministically and dump frames.
+        playing = false;
+        for (int i = 0; i < opts_.renderFrames; ++i) {
+            playTime = pipe.clip.duration > 0 ? float(i) / float(opts_.renderFrames - 1 > 0 ? opts_.renderFrames - 1 : 1) * pipe.clip.duration : 0.0f;
+            if (pipe.clip.duration > 0) pipe.clip.applyTo(pipe.rig, playTime);
+            glfwPollEvents(); frame();
+            char buf[512]; std::snprintf(buf, sizeof buf, opts_.framePattern.c_str(), i);
+            if (saveFrame(buf)) std::printf("[fr] wrote %s (t=%.2fs)\n", buf, playTime); else std::fprintf(stderr, "[fr] failed to write %s\n", buf);
+        }
         glfwSetWindowShouldClose(window_, 1);
     }
-    lastFrameTime_ = glfwGetTime();
     while (!glfwWindowShouldClose(window_)) { glfwPollEvents(); frame(); }
+    live.stop();
     ImGui_ImplOpenGL3_Shutdown(); ImGui_ImplGlfw_Shutdown(); ImGui::DestroyContext();
     glfwDestroyWindow(window_); glfwTerminate();
     return 0;
@@ -65,6 +96,16 @@ void Application::frame() {
     if (fbSize_.x <= 0 || fbSize_.y <= 0) return;
     view_ = camera.view(); proj_ = camera.projection(float(fbSize_.x) / float(fbSize_.y));
 
+    if (liveEnabled) {
+        auto lf = live.poll();
+        if (lf.valid) {
+            liveViseme = lf.viseme;
+            // Drive the rig directly from the live viseme (same mapping as the offline generator).
+            LipSyncGenerator gen(pipe.lipSync);
+            gen.applyVisemeToRig(liveViseme, lf.features, pipe.rig);
+        }
+        liveWave = live.recent(2.0);
+    }
     if (playing && pipe.clip.duration > 0) {
         playTime += dt;
         if (playTime > pipe.clip.duration) { if (loop) playTime = 0.0f; else { playTime = pipe.clip.duration; playing = false; } }
@@ -81,7 +122,7 @@ void Application::frame() {
     glViewport(0, 0, fbSize_.x, fbSize_.y);
     glClearColor(0.11f, 0.12f, 0.14f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    glEnable(GL_MULTISAMPLE);
+    if (!glIsES()) glEnable(GL_MULTISAMPLE);
     drawScene();
     drawGizmos();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
@@ -214,6 +255,33 @@ void Application::drawGizmos() {
         }
     }
     gizmos.flush(proj_ * view_, 12.0f, false);
+}
+
+bool Application::saveFrame(const std::string& path) const {
+    int w = fbSize_.x, h = fbSize_.y;
+    if (w <= 0 || h <= 0) return false;
+    std::vector<unsigned char> rgba(size_t(w) * size_t(h) * 4);
+    glFinish();
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+    FILE* f = std::fopen(path.c_str(), "wb");
+    if (!f) return false;
+    std::fprintf(f, "P6\n%d %d\n255\n", w, h);
+    std::vector<unsigned char> row(size_t(w) * 3);
+    for (int y = h - 1; y >= 0; --y) { // GL rows are bottom-up
+        for (int x = 0; x < w; ++x) { const unsigned char* p = &rgba[(size_t(y) * w + x) * 4]; row[x * 3] = p[0]; row[x * 3 + 1] = p[1]; row[x * 3 + 2] = p[2]; }
+        std::fwrite(row.data(), 1, row.size(), f);
+    }
+    std::fclose(f);
+    return true;
+}
+
+void Application::toggleLive(int device) {
+    if (liveEnabled) { live.stop(); liveEnabled = false; status = "Live capture stopped"; return; }
+    std::string err;
+    live.setMapper(pipe.makeMapper());
+    if (live.start(device, 16000, &err)) { liveEnabled = true; liveError.clear(); status = "Live capture running"; }
+    else { liveError = err; status = "Live capture failed: " + err; }
 }
 
 void Application::pushUndo() { undo_.push_back({pipe.rig.controlPoints, pipe.rig.blendWeights()}); if (undo_.size() > 64) undo_.erase(undo_.begin()); redo_.clear(); }

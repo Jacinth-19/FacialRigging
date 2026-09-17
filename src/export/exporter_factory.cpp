@@ -11,7 +11,9 @@ std::unique_ptr<Exporter> makeExporterForPath(const std::string& path, std::stri
     if (ext == ".fbx") {
         auto fbx = std::make_unique<FbxExporter>();
         if (fbx->available()) return fbx;
-        if (note) *note = "FBX SDK not compiled in (configure with -DFR_WITH_FBX_SDK=ON -DFBX_SDK_ROOT=...); falling back to glTF (.glb)";
+        auto assimp = std::make_unique<AssimpFbxExporter>();
+        if (assimp->available()) return assimp;
+        if (note) *note = "no FBX writer compiled in; falling back to glTF (.glb)";
         return std::make_unique<GltfExporter>();
     }
     return std::make_unique<GltfExporter>();

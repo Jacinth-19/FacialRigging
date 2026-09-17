@@ -7,10 +7,10 @@ MeshRenderer::~MeshRenderer() { destroy(); }
 
 void MeshRenderer::destroy() {
     if (vao_) glDeleteVertexArrays(1, &vao_);
-    GLuint bufs[] = {vboPos_, vboNrm_, vboBone_, vboWeight_, ebo_, shapeTbo_};
-    glDeleteBuffers(6, bufs);
+    GLuint bufs[] = {vboPos_, vboNrm_, vboBone_, vboWeight_, ebo_};
+    glDeleteBuffers(5, bufs);
     if (shapeTex_) glDeleteTextures(1, &shapeTex_);
-    vao_ = vboPos_ = vboNrm_ = vboBone_ = vboWeight_ = ebo_ = shapeTbo_ = shapeTex_ = 0;
+    vao_ = vboPos_ = vboNrm_ = vboBone_ = vboWeight_ = ebo_ = shapeTex_ = 0;
 }
 
 bool MeshRenderer::init(const std::string& dir, std::string* log) {
@@ -47,11 +47,18 @@ void MeshRenderer::upload(const Rig& rig) {
         auto d = rig.blendShapes[s].dense(m.vertexCount());
         std::copy(d.begin(), d.end(), deltas.begin() + size_t(s) * m.vertexCount());
     }
-    glGenBuffers(1, &shapeTbo_); glBindBuffer(GL_TEXTURE_BUFFER, shapeTbo_);
-    glBufferData(GL_TEXTURE_BUFFER, GLsizeiptr(std::max<size_t>(deltas.size(), 1) * sizeof(glm::vec3)), deltas.empty() ? nullptr : deltas.data(), GL_STATIC_DRAW);
-    glGenTextures(1, &shapeTex_); glBindTexture(GL_TEXTURE_BUFFER, shapeTex_);
-    glTexBuffer(GL_TEXTURE_BUFFER, GL_RGB32F, shapeTbo_);
-    glBindBuffer(GL_TEXTURE_BUFFER, 0);
+    // Stored in a 2D RGB32F texture (texelFetch) so the same path works on GL 3.3 and ES 3.0.
+    GLint maxTex = 4096; glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTex);
+    shapeTexW_ = std::min<int>(4096, maxTex);
+    size_t texels = std::max<size_t>(deltas.size(), 1);
+    int rows = int((texels + size_t(shapeTexW_) - 1) / size_t(shapeTexW_));
+    deltas.resize(size_t(shapeTexW_) * size_t(rows), glm::vec3(0.0f));
+    glGenTextures(1, &shapeTex_); glBindTexture(GL_TEXTURE_2D, shapeTex_);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, shapeTexW_, rows, 0, GL_RGB, GL_FLOAT, deltas.data());
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D, 0);
     cpuPos_ = m.positions; cpuNrm_ = m.normals;
 }
 
@@ -85,12 +92,12 @@ void MeshRenderer::draw(const Rig& rig, const glm::mat4& view, const glm::mat4& 
         shader_.set("u_ShapeCount", shapeCount_);
         if (shapeCount_) shader_.set("u_BlendWeights", w);
     }
-    glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_BUFFER, shapeTex_); shader_.set("u_ShapeDeltas", 0);
+    glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, shapeTex_); shader_.set("u_ShapeDeltas", 0); shader_.set("u_ShapeTexWidth", shapeTexW_);
     glBindVertexArray(vao_);
     glEnable(GL_DEPTH_TEST); glDepthFunc(GL_LEQUAL); glEnable(GL_CULL_FACE);
     shader_.set("u_Wireframe", 0);
     glDrawElements(GL_TRIANGLES, indexCount_, GL_UNSIGNED_INT, nullptr);
-    if (wireframe) {
+    if (wireframe && glPolygonMode) { // glPolygonMode does not exist on OpenGL ES
         glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE); glEnable(GL_POLYGON_OFFSET_LINE); glPolygonOffset(-1.0f, -1.0f);
         shader_.set("u_Wireframe", 1);

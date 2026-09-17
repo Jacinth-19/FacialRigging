@@ -28,6 +28,11 @@ public:
     AnimationClip generate(const FeatureTrack& features, const std::vector<VisemeFrame>& visemes, const Rig& rig) const;
     /// Convenience: extract features, map visemes, then generate.
     AnimationClip generate(const AudioBuffer& audio, const Rig& rig, FeatureTrack* outFeatures = nullptr) const;
+    /// Blendshape weights (JawOpen, Smile, Pucker, Wide, LipsPress, Funnel) for one viseme frame.
+    struct MouthPose { float jawOpen = 0, smile = 0, pucker = 0, wide = 0, lipsPress = 0, funnel = 0; };
+    MouthPose mouthPose(const VisemeFrame& v, float loudness) const;
+    /// Live path: pose the rig (blend weights + jaw bone) directly from one viseme frame.
+    void applyVisemeToRig(const VisemeFrame& v, const AudioFrameFeatures& f, Rig& rig) const;
 };
 
 } // namespace fr

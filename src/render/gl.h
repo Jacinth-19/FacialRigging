@@ -1,6 +1,8 @@
 #pragma once
-// Tiny self-contained OpenGL 3.3 core loader (subset used by the app), so the tree has no
-// generated GLAD dependency. Function pointers are resolved through glfwGetProcAddress.
+// Tiny self-contained OpenGL loader (subset used by the app + Dear ImGui backend), so the tree
+// has no generated GLAD dependency. Function pointers are resolved through glfwGetProcAddress.
+// Works for both desktop OpenGL 3.3 core and OpenGL ES 3.0 (EGL / SwiftShader / Mesa) contexts;
+// functions that do not exist on ES (glPolygonMode, glTexBuffer, ...) are optional and stay null.
 #include <cstddef>
 #include <cstdint>
 
@@ -56,6 +58,63 @@ typedef char GLchar; typedef std::ptrdiff_t GLsizeiptr; typedef std::ptrdiff_t G
 #define GL_RGB32F 0x8815
 #define GL_PROGRAM_POINT_SIZE 0x8642
 #define GL_UNIFORM_BUFFER 0x8A11
+#define GL_UNSIGNED_SHORT 0x1403
+#define GL_RGB 0x1907
+#define GL_SCISSOR_TEST 0x0C11
+#define GL_STENCIL_TEST 0x0B90
+#define GL_FUNC_ADD 0x8006
+#define GL_ONE 1
+#define GL_ZERO 0
+#define GL_BACK 0x0405
+#define GL_FRONT 0x0404
+#define GL_CLAMP_TO_EDGE 0x812F
+#define GL_TEXTURE_WRAP_S 0x2802
+#define GL_TEXTURE_WRAP_T 0x2803
+#define GL_STREAM_DRAW 0x88E0
+#define GL_MAJOR_VERSION 0x821B
+#define GL_MINOR_VERSION 0x821C
+#define GL_NUM_EXTENSIONS 0x821D
+#define GL_EXTENSIONS 0x1F03
+#define GL_SHADING_LANGUAGE_VERSION 0x8B8C
+#define GL_ACTIVE_TEXTURE 0x84E0
+#define GL_ARRAY_BUFFER_BINDING 0x8894
+#define GL_ELEMENT_ARRAY_BUFFER_BINDING 0x8895
+#define GL_VERTEX_ARRAY_BINDING 0x85B5
+#define GL_TEXTURE_BINDING_2D 0x8069
+#define GL_SAMPLER_BINDING 0x8919
+#define GL_CURRENT_PROGRAM 0x8B8D
+#define GL_VIEWPORT 0x0BA2
+#define GL_SCISSOR_BOX 0x0C10
+#define GL_BLEND_SRC_RGB 0x80C9
+#define GL_BLEND_DST_RGB 0x80C8
+#define GL_BLEND_SRC_ALPHA 0x80CB
+#define GL_BLEND_DST_ALPHA 0x80CA
+#define GL_BLEND_EQUATION_RGB 0x8009
+#define GL_BLEND_EQUATION_ALPHA 0x883D
+#define GL_POLYGON_MODE 0x0B40
+#define GL_PIXEL_UNPACK_BUFFER 0x88EC
+#define GL_PIXEL_UNPACK_BUFFER_BINDING 0x88EF
+#define GL_UNPACK_ROW_LENGTH 0x0CF2
+#define GL_UNPACK_ALIGNMENT 0x0CF5
+#define GL_PACK_ALIGNMENT 0x0D05
+#define GL_VERTEX_ATTRIB_ARRAY_ENABLED 0x8622
+#define GL_VERTEX_ATTRIB_ARRAY_SIZE 0x8623
+#define GL_VERTEX_ATTRIB_ARRAY_STRIDE 0x8624
+#define GL_VERTEX_ATTRIB_ARRAY_TYPE 0x8625
+#define GL_VERTEX_ATTRIB_ARRAY_NORMALIZED 0x886A
+#define GL_VERTEX_ATTRIB_ARRAY_POINTER 0x8645
+#define GL_CONTEXT_PROFILE_MASK 0x9126
+#define GL_CONTEXT_COMPATIBILITY_PROFILE_BIT 0x00000002
+#define GL_MAX_TEXTURE_SIZE 0x0D33
+#define GL_NO_ERROR 0
+#define GL_FRAMEBUFFER 0x8D40
+#define GL_RENDERBUFFER 0x8D41
+#define GL_COLOR_ATTACHMENT0 0x8CE0
+#define GL_DEPTH_ATTACHMENT 0x8D00
+#define GL_DEPTH_COMPONENT24 0x81A6
+#define GL_RGBA8 0x8058
+#define GL_FRAMEBUFFER_COMPLETE 0x8CD5
+typedef double GLdouble; typedef short GLshort; typedef unsigned short GLushort;
 
 #ifdef _WIN32
 #define FR_APIENTRY __stdcall
@@ -71,10 +130,8 @@ typedef char GLchar; typedef std::ptrdiff_t GLsizeiptr; typedef std::ptrdiff_t G
   X(void, glDepthFunc, GLenum) \
   X(void, glBlendFunc, GLenum, GLenum) \
   X(void, glViewport, GLint, GLint, GLsizei, GLsizei) \
-  X(void, glPolygonMode, GLenum, GLenum) \
   X(void, glPolygonOffset, GLfloat, GLfloat) \
   X(void, glLineWidth, GLfloat) \
-  X(void, glPointSize, GLfloat) \
   X(const GLubyte*, glGetString, GLenum) \
   X(GLenum, glGetError, void) \
   X(void, glGenBuffers, GLsizei, GLuint*) \
@@ -114,14 +171,52 @@ typedef char GLchar; typedef std::ptrdiff_t GLsizeiptr; typedef std::ptrdiff_t G
   X(void, glDeleteTextures, GLsizei, const GLuint*) \
   X(void, glBindTexture, GLenum, GLuint) \
   X(void, glActiveTexture, GLenum) \
+  X(void, glTexParameteri, GLenum, GLenum, GLint) \
+  X(void, glTexImage2D, GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, const void*) \
+  X(void, glPixelStorei, GLenum, GLint) \
+  X(void, glReadPixels, GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, void*) \
+  X(void, glFinish, void) \
+  X(void, glGetIntegerv, GLenum, GLint*) \
+  X(const GLubyte*, glGetStringi, GLenum, GLuint) \
+  X(GLboolean, glIsEnabled, GLenum) \
+  X(GLboolean, glIsProgram, GLuint) \
+  X(void, glScissor, GLint, GLint, GLsizei, GLsizei) \
+  X(void, glBlendEquation, GLenum) \
+  X(void, glBlendEquationSeparate, GLenum, GLenum) \
+  X(void, glBlendFuncSeparate, GLenum, GLenum, GLenum, GLenum) \
+  X(void, glDetachShader, GLuint, GLuint) \
+  X(void, glDisableVertexAttribArray, GLuint) \
+  X(GLint, glGetAttribLocation, GLuint, const GLchar*) \
+  X(void, glGetVertexAttribiv, GLuint, GLenum, GLint*) \
+  X(void, glGetVertexAttribPointerv, GLuint, GLenum, void**) \
+  X(void, glGenFramebuffers, GLsizei, GLuint*) \
+  X(void, glDeleteFramebuffers, GLsizei, const GLuint*) \
+  X(void, glBindFramebuffer, GLenum, GLuint) \
+  X(void, glFramebufferTexture2D, GLenum, GLenum, GLenum, GLuint, GLint) \
+  X(void, glFramebufferRenderbuffer, GLenum, GLenum, GLenum, GLuint) \
+  X(void, glGenRenderbuffers, GLsizei, GLuint*) \
+  X(void, glDeleteRenderbuffers, GLsizei, const GLuint*) \
+  X(void, glBindRenderbuffer, GLenum, GLuint) \
+  X(void, glRenderbufferStorage, GLenum, GLenum, GLsizei, GLsizei) \
+  X(GLenum, glCheckFramebufferStatus, GLenum)
+
+// Desktop-GL-only (or extension) entry points: loaded when available, otherwise null.
+#define FR_GL_OPTIONAL_FUNCS(X) \
+  X(void, glBindSampler, GLuint, GLuint) \
+  X(void, glPolygonMode, GLenum, GLenum) \
   X(void, glTexBuffer, GLenum, GLenum, GLuint) \
-  X(void, glTexParameteri, GLenum, GLenum, GLint)
+  X(void, glPointSize, GLfloat)
 
 #define FR_DECL(ret, name, ...) typedef ret (FR_APIENTRY *PFN_##name)(__VA_ARGS__); extern PFN_##name name;
 FR_GL_FUNCS(FR_DECL)
+FR_GL_OPTIONAL_FUNCS(FR_DECL)
 #undef FR_DECL
 
 namespace fr {
 /// Resolves all functions; returns false if any core function is missing.
 bool loadGL(void* (*getProc)(const char*));
+/// True when the current context is OpenGL ES (set by loadGL from GL_VERSION).
+bool glIsES();
+/// GLSL version line (+ ES precision qualifiers) to prepend to shaders for the current context.
+const char* glslVersionLine();
 } // namespace fr

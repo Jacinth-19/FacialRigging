@@ -16,7 +16,7 @@ Steps:
 3. Apply the default face rig (Head/Jaw bones, 8 blendshapes, 8 control points).
 4. Import audio "assets/sample_speech.wav".
 5. Run the audio-to-animation process (rule-based viseme mapper, 30 fps).
-6. Export the result as "out/scene.fbx" (falls back to .glb when the FBX SDK is absent).
+6. Export the result as "out/scene.fbx" (Assimp FBX writer; falls back to .glb only if no FBX writer is compiled in).
 7. Repeat with 2 variation settings ("Increase smile", "Raise eyebrows").
 Metadata: application=fr_cli, modelPath=assets/sample_head.obj, audioFile=assets/sample_speech.wav,
           outputPattern=out/scene, variations=2, exportFormat=FBX

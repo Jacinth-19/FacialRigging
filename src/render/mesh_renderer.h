@@ -29,7 +29,7 @@ public:
 private:
     Shader shader_;
     GLuint vao_ = 0, vboPos_ = 0, vboNrm_ = 0, vboBone_ = 0, vboWeight_ = 0, ebo_ = 0;
-    GLuint shapeTbo_ = 0, shapeTex_ = 0;
+    GLuint shapeTex_ = 0; int shapeTexW_ = 4096;
     int vertexCount_ = 0, indexCount_ = 0, shapeCount_ = 0;
     std::vector<glm::vec3> cpuPos_, cpuNrm_;
     bool usedCpu_ = false;

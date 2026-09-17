@@ -1,4 +1,4 @@
-#version 330 core
+// No #version here: the app prepends '#version 330 core' or '#version 300 es' (+precision).
 layout(location = 0) in vec3 inPos;
 layout(location = 1) in vec4 inColor;
 uniform mat4 u_ViewProj;

@@ -52,17 +52,10 @@ AnimationClip LipSyncGenerator::generate(const FeatureTrack& features, const std
         float t = i * dt;
         const AudioFrameFeatures* f = features.at(t);
         const VisemeFrame* v = visemeAt(t);
-        VisemePose pose{};
-        if (v) {
-            for (size_t k = 0; k < v->weights.size(); ++k) {
-                const VisemePose& p = visemePose(Viseme(k)); float w = v->weights[k];
-                pose.jawOpen += w * p.jawOpen; pose.smile += w * p.smile; pose.pucker += w * p.pucker;
-                pose.wide += w * p.wide; pose.lipsPress += w * p.lipsPress; pose.funnel += w * p.funnel;
-            }
-        }
         float loud = f ? f->loudness : 0.0f;
+        MouthPose pose = mouthPose(v ? *v : VisemeFrame{}, loud);
         float I = settings.intensity;
-        float jawW = std::clamp((pose.jawOpen + settings.jawFromLoudness * loud) * I, 0.0f, 1.0f);
+        float jawW = pose.jawOpen;
         float browW = 0.0f;
         if (f && medianPitch > 0 && f->pitchHz > 0 && f->voicing > 0.5f)
             browW = std::clamp(settings.browFromPitch * std::log2(f->pitchHz / medianPitch) * 2.0f, 0.0f, 1.0f);
@@ -72,11 +65,12 @@ AnimationClip LipSyncGenerator::generate(const FeatureTrack& features, const std
             if (phase < settings.blinkDurationSec) blinkW = std::sin(float(M_PI) * phase / settings.blinkDurationSec);
         }
         if (jaw) jaw->addKey(t, jawW);
-        if (smile) smile->addKey(t, std::clamp(pose.smile * I + settings.smileBias, 0.0f, 1.0f));
-        if (pucker) pucker->addKey(t, std::clamp(pose.pucker * I, 0.0f, 1.0f));
-        if (wide) wide->addKey(t, std::clamp(pose.wide * I, 0.0f, 1.0f));
-        if (press) press->addKey(t, std::clamp(pose.lipsPress * I, 0.0f, 1.0f));
-        if (funnel) funnel->addKey(t, std::clamp(pose.funnel * I, 0.0f, 1.0f));
+        if (smile) smile->addKey(t, pose.smile);
+        if (pucker) pucker->addKey(t, pose.pucker);
+        if (wide) wide->addKey(t, pose.wide);
+        if (press) press->addKey(t, pose.lipsPress);
+        if (funnel) funnel->addKey(t, pose.funnel);
+        (void)I;
         if (brow) brow->addKey(t, browW);
         if (blink) blink->addKey(t, blinkW);
         if (jawBone >= 0) jawRot.addKey(t, glm::angleAxis(glm::radians(settings.jawBoneDegrees * jawW), glm::vec3(1, 0, 0)));
@@ -86,6 +80,34 @@ AnimationClip LipSyncGenerator::generate(const FeatureTrack& features, const std
     if (jawBone >= 0) clip.boneRotations.push_back(jawRot);
     clip.smoothBlendCurves(settings.smoothingRadiusFrames);
     return clip;
+}
+
+LipSyncGenerator::MouthPose LipSyncGenerator::mouthPose(const VisemeFrame& v, float loud) const {
+    VisemePose pose{};
+    for (size_t k = 0; k < v.weights.size(); ++k) {
+        const VisemePose& p = visemePose(Viseme(k)); float w = v.weights[k];
+        pose.jawOpen += w * p.jawOpen; pose.smile += w * p.smile; pose.pucker += w * p.pucker;
+        pose.wide += w * p.wide; pose.lipsPress += w * p.lipsPress; pose.funnel += w * p.funnel;
+    }
+    const float I = settings.intensity;
+    MouthPose m;
+    m.jawOpen = std::clamp((pose.jawOpen + settings.jawFromLoudness * loud) * I, 0.0f, 1.0f);
+    m.smile = std::clamp(pose.smile * I + settings.smileBias, 0.0f, 1.0f);
+    m.pucker = std::clamp(pose.pucker * I, 0.0f, 1.0f);
+    m.wide = std::clamp(pose.wide * I, 0.0f, 1.0f);
+    m.lipsPress = std::clamp(pose.lipsPress * I, 0.0f, 1.0f);
+    m.funnel = std::clamp(pose.funnel * I, 0.0f, 1.0f);
+    return m;
+}
+
+void LipSyncGenerator::applyVisemeToRig(const VisemeFrame& v, const AudioFrameFeatures& f, Rig& rig) const {
+    MouthPose m = mouthPose(v, f.loudness);
+    rig.setBlendWeight(shapes::JawOpen, m.jawOpen); rig.setBlendWeight(shapes::MouthSmile, m.smile);
+    rig.setBlendWeight(shapes::MouthPucker, m.pucker); rig.setBlendWeight(shapes::MouthWide, m.wide);
+    rig.setBlendWeight(shapes::LipsPress, m.lipsPress); rig.setBlendWeight(shapes::MouthFunnel, m.funnel);
+    int jaw = rig.skeleton.find("Jaw");
+    if (jaw >= 0) rig.skeleton.bones[size_t(jaw)].poseRotation = glm::angleAxis(glm::radians(settings.jawBoneDegrees * m.jawOpen), glm::vec3(1, 0, 0));
+    rig.syncControlPointsFromRig();
 }
 
 } // namespace fr

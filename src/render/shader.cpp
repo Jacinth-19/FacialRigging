@@ -6,8 +6,25 @@ namespace fr {
 
 Shader::~Shader() { if (program_) glDeleteProgram(program_); }
 
-static GLuint compileStage(GLenum type, const std::string& src, std::string* log) {
+static std::string withVersion(const std::string& src) {
+    // Shader files carry no #version line (any present one is dropped) so the same GLSL
+    // compiles on desktop 3.3 core and ES 3.0; the right header is prepended here.
+    std::string body = src;
+    size_t v = 0;
+    while ((v = body.find("#version", v)) != std::string::npos) {
+        size_t bol = body.rfind('\n', v); bol = bol == std::string::npos ? 0 : bol + 1;
+        bool atLineStart = body.find_first_not_of(" \t", bol) == v;
+        if (!atLineStart) { v += 8; continue; }
+        auto eol = body.find('\n', v);
+        body.erase(bol, eol == std::string::npos ? std::string::npos : eol - bol + 1);
+        break;
+    }
+    return std::string(glslVersionLine()) + body;
+}
+
+static GLuint compileStage(GLenum type, const std::string& srcIn, std::string* log) {
     GLuint s = glCreateShader(type);
+    std::string src = withVersion(srcIn);
     const char* c = src.c_str();
     glShaderSource(s, 1, &c, nullptr);
     glCompileShader(s);

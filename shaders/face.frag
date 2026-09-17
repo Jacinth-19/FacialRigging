@@ -1,4 +1,4 @@
-#version 330 core
+// No #version here: the app prepends '#version 330 core' or '#version 300 es' (+precision).
 in vec3 vNormal;
 in vec3 vWorldPos;
 out vec4 FragColor;

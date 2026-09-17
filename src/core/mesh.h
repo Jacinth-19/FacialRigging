@@ -26,6 +26,10 @@ struct Mesh {
     glm::vec3 boundsMax() const;
     /// Uniformly rescales and recentres so the mesh fits in a unit-ish box (useful for arbitrary imports).
     void normalizeToUnit();
+    /// Rotates a Z-up mesh (common for scanned/archaeological data) into the app's Y-up frame.
+    void zUpToYUp();
+    /// Heuristic: true when the mesh looks Z-up (Z extent clearly dominates Y).
+    bool looksZUp() const;
 };
 
 /// A simple procedural head-like mesh (UV sphere squashed into a face shape) used

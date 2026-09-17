@@ -44,6 +44,17 @@ void Mesh::normalizeToUnit() {
     for (auto& p : positions) p = (p - c) * s;
 }
 
+void Mesh::zUpToYUp() {
+    for (auto& p : positions) p = glm::vec3(p.x, p.z, -p.y);
+    for (auto& n : normals) n = glm::vec3(n.x, n.z, -n.y);
+}
+
+bool Mesh::looksZUp() const {
+    if (positions.empty()) return false;
+    glm::vec3 e = boundsMax() - boundsMin();
+    return e.z > 1.25f * e.y && e.z > e.x;
+}
+
 Mesh makeProceduralHead(int rings, int segments) {
     Mesh m;
     m.name = "procedural_head";

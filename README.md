@@ -11,10 +11,21 @@ input, and glTF/FBX export. Ships with an ICT-FaceKit head (separated brows/eyes
 ## Build
 
 ```bash
-git clone --recursive <repo>            # or: git submodule update --init
+git clone <repo> && cd FacialRigging
+tools/bootstrap.sh                      # installs cmake/ninja if missing, restores pinned submodules,
+                                        # applies local patches, builds, runs the tests (≈3 min)
+```
+
+`tools/bootstrap.sh` is idempotent: re-run it after a wiped environment or a submodule bump.
+`--timit` also fetches the TIMIT corpus to `data/timit` (for `fr_train_visemes`), `--torch`
+fetches a CPU LibTorch into `third_party/libtorch` and enables `FR_WITH_TORCH`. Both are gitignored.
+Manual equivalent:
+
+```bash
+git submodule update --init --depth 1   # + patches, see third_party/patches/README.md
 cmake -S . -B build -G Ninja            # -DFR_BUILD_APP=OFF for headless-only
 cmake --build build
-ctest --test-dir build                  # 31 unit tests
+ctest --test-dir build                  # 32 unit tests
 ```
 
 Dependencies are vendored as submodules (GLFW, Dear ImGui, glm, Catch2, **Assimp**, **PortAudio**,

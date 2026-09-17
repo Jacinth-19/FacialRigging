@@ -8,3 +8,6 @@ compile_commands.json
 *.fbx
 exports/
 imgui.ini
+# large optional downloads fetched by tools/bootstrap.sh
+data/
+third_party/libtorch/

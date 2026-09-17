@@ -19,7 +19,12 @@
 | Live microphone input | ✅ `src/audio/live_capture.*` (PortAudio, static submodule) + “Live Microphone” panel / `--live` | ALSA host API compiled in from the `alsa-lib` submodule headers; built-in **test-signal device (-2)** exercises the whole live path without hardware (`fr_cli --live-test -2 2`, unit test). Sandbox has no `libasound.so.2`/devices → real hardware needed to hear audio |
 | ML lip-sync | ✅ `MlVisemeMapper` behind `VisemeMapper` (`--mapper ml [--model-pt x.pt]`) | LibTorch is not a submodule (binary dist): point `TORCH_ROOT` at a LibTorch or `torch` wheel dir |
 | UI | ✅ AccuRIG-style shell (`src/ui/theme.*`, `panels.cpp`): Inter font, **Material Icons** (submodule, unpacked from WOFF at build time), dark/lime theme, left 5-step wizard incl. **Check Model orientation step** with working **Force Symmetry**, right property page, export modal | |
-| Test model with separated parts | ✅ `assets/models/ict_face` (ICT-FaceKit: 13 parts, 53 shapes) | `tools/prepare_ict_facekit.py` regenerates from the upstream repo |
+| Test model with separated parts | ✅ `assets/models/ict_face` (ICT-FaceKit: 13 parts, 53 shapes); jaw weights re-derived from the condyle pivot with a neck cut-off | `tools/prepare_ict_facekit.py` regenerates from the upstream repo |
+| Eye bones / gaze | ✅ `EyeL`/`EyeR` bones from eyeball parts, `Rig::lookAt`/`setGaze`, UI gaze tab, saccades in the generator | needs separated eyeballs (ICT head); single-surface scans skip it |
+| Expressions / emotions | ✅ 6 presets over 11 canonical shapes (3 new procedural + ARKit-merged), pose / lip-sync layer / export variation | |
+| Head motion | ✅ loudness/onset-driven nods + noise sway on `Head`, exported as bone curves | |
+| Clip interchange | ✅ mesh-free clip JSON with ARKit aliases, import/export in UI + CLI (`--format json`, `--clip-in`) | |
+| Diagnostic shading | ✅ normals / bone-weight heat map / blendshape influence / displacement (keys 1-5) | |
 | Audio encryption at rest | ❌ | Only needed once recordings are persisted |
 
 ## Running here (sandbox, no GPU / no X11)
@@ -32,6 +37,9 @@ python3 tools/ppm2png.py out/frame_*.ppm
 
 ![Nefertiti](images/headless_nefertiti.png)
 
+![Jaw weight heat map](images/ui_bone_heatmap.png)
+![Gaze + happy preset](images/ui_gaze_happy.png)
+
 Known gaps: blendshape weights animate in FBX only through the Assimp patch (validated with
 Assimp's own importer, not yet in Maya/Blender); the live mic path is untested with a real
-device; the ML mapper's weights are hand-initialised, not trained.
+device.

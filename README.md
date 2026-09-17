@@ -119,6 +119,26 @@ the official TEST set **77.5 %** (majority-class baseline 34.7 %); confusion mat
 subsets (then it holds out 20 % of speakers). The `.frvm` format is plain C++ so the trained
 model runs in every build; `FR_WITH_TORCH` additionally allows TorchScript `.pt` models.
 
+### Performance layer, expressions, gaze
+
+- **Eye bones + look-at.** Models with separate `EyeL`/`EyeR` parts (ICT head) get `EyeL`/`EyeR`
+  bones pivoted at the eyeball centres; only the eyeballs follow them. `Rig::lookAt(point)` /
+  `Rig::setGaze(yaw, pitch)`; UI: *Face Rig ▸ Expression ▸ Gaze* ("Look at camera"); CLI `--gaze YAW PITCH`.
+- **Expression presets** (`neutral happy sad angry surprised disgusted`) over 11 canonical shapes
+  (new: `MouthFrown`, `BrowDown`, `EyeWide`, procedural fallbacks + ARKit merges). Apply as a pose,
+  layer under lip-sync (`LipSyncSettings::emotion/emotionAmount`, `--emotion angry 0.6`), or use
+  as an export variation (`--variation "sad=0.5"`).
+- **Head motion & saccades.** The generator adds loudness/onset-driven nods and slow sway on the
+  `Head` bone and saccade-and-hold eye movement (when eye bones exist); `--head-motion`, `--gaze-motion`
+  (0 disables). All bone curves are exported to FBX/glTF.
+- **Clip JSON** (`--format json`, *Export ▸ Export clip JSON*, *Check Animation ▸ Clip JSON*): mesh-free
+  curves with ARKit alias lists per shape (`"arkit": ["mouthSmile_L","mouthSmile_R"]`) for
+  retargeting; `loadClipsJson` / `--clip-in` / *File ▸ Import clip JSON* loads it back onto any rig.
+- **Shading modes** (keys `1`–`5`, View menu, toolbar): Lit, Normals, **Bone-weight heat map**
+  (thermometer button next to each bone), **Blendshape influence** (gradient button next to each
+  shape, or all active shapes), Displacement. The heat map exposed - and fixed - jaw weights
+  bleeding onto the neck of the full-bust ICT model.
+
 ## Layout
 
 ```

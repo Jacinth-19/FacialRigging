@@ -1,5 +1,9 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
+#include <chrono>
+#include <thread>
+#include <array>
+#include <algorithm>
 #include "audio/ml_viseme_mapper.h"
 #include "audio/live_capture.h"
 #include "app/pipeline.h"
@@ -58,4 +62,57 @@ TEST_CASE("live capture API is safe without a device") {
     if (!devs.empty() && lc.start(devs.front().index, 16000, &err)) {
         CHECK(lc.running()); lc.stop(); CHECK_FALSE(lc.running());
     }
+}
+
+TEST_CASE("live capture pipeline runs end-to-end on the built-in test signal") {
+    LiveCapture lc; std::string err;
+    REQUIRE(lc.start(LiveCapture::kTestSignalDevice, 16000, &err));
+    REQUIRE(lc.running());
+    int valid = 0, speaking = 0;
+    auto t0 = std::chrono::steady_clock::now();
+    while (std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() < 1.5) {
+        auto f = lc.poll();
+        if (f.valid) { ++valid; if (f.viseme.dominant() != Viseme::Silence) ++speaking; }
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    lc.stop();
+    CHECK_FALSE(lc.running());
+    CHECK(valid > 20);          // ~100 hops/s at 10 ms hop
+    CHECK(speaking > 0);        // synthetic speech opens the mouth
+    CHECK(lc.recent(0.5).size() == 8000);
+    CHECK(lc.inputLevel() > 0.01f);
+}
+
+TEST_CASE("shipped viseme model is trained (not hand-set) and drives speech-reactive visemes") {
+    MlVisemeMapper m; std::string err;
+    REQUIRE(m.loadDefault(FR_ASSET_DIR, &err));
+    CHECK(m.modelInfo().find("TIMIT") != std::string::npos);      // provenance recorded by the trainer
+    CHECK(m.modelInfo().find("held-out acc") != std::string::npos);
+    AudioBuffer a = synthesizeTestSpeech(2.0, 16000);
+    FeatureTrack t = FeatureExtractor().extract(a);
+    auto frames = m.map(t);
+    REQUIRE(frames.size() == t.frames.size());
+    int nonSilent = 0; std::array<bool, size_t(Viseme::Count)> seen{};
+    for (auto& f : frames) {
+        float sum = 0; for (float w : f.weights) { CHECK(w >= 0.0f); sum += w; }
+        CHECK(sum == Approx(1.0f).margin(1e-3f));
+        auto k = size_t(std::max_element(f.weights.begin(), f.weights.end()) - f.weights.begin());
+        seen[k] = true; if (k != 0) ++nonSilent;
+    }
+    CHECK(nonSilent > int(frames.size()) / 4);
+    int distinct = 0; for (bool b : seen) distinct += b;
+    CHECK(distinct >= 3);
+}
+
+TEST_CASE("FRVM weights round-trip through save/load") {
+    VisemeMlpWeights w; w.inputs = 17; w.context = 1; w.layerSizes = {17, 4, 9};
+    w.W = {std::vector<float>(17 * 4, 0.1f), std::vector<float>(4 * 9, -0.2f)}; w.b = {std::vector<float>(4, 0.5f), std::vector<float>(9, 0.0f)};
+    w.mean.assign(17, 0.0f); w.invStd.assign(17, 1.0f); w.info = "unit";
+    REQUIRE(w.save("/tmp/fr_unit.frvm"));
+    VisemeMlpWeights r; REQUIRE(r.load("/tmp/fr_unit.frvm"));
+    CHECK(r.info == "unit"); CHECK(r.layerSizes == w.layerSizes);
+    std::vector<float> x(17, 1.0f);
+    auto a = w.forward(x), b = r.forward(x);
+    REQUIRE(a.size() == 9); for (size_t i = 0; i < 9; ++i) CHECK(a[i] == Approx(b[i]));
+    CHECK(a[0] == Approx(-0.2f * 4 * (0.1f * 17 + 0.5f)));
 }

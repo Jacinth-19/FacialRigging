@@ -17,6 +17,7 @@ struct LipSyncSettings {
     float blinkDurationSec = 0.15f;
     int smoothingRadiusFrames = 1;   ///< box-filter radius applied to baked curves
     float jawBoneDegrees = 12.0f;    ///< peak jaw bone rotation (x-axis) at full JawOpen
+    float jawShapeScale = 1.0f;      ///< multiplier on the JawOpen blendshape (set <1 when the shape already includes jaw drop, e.g. authored ARKit sets)
 };
 
 /// Turns acoustic features + viseme probabilities into a baked AnimationClip that

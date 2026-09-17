@@ -1,0 +1,269 @@
+{
+ "source": "https://github.com/ICT-VGL/ICT-FaceKit",
+ "license": "MIT",
+ "parts": {
+  "Face": {
+   "faces": 8610,
+   "verts": 8871,
+   "bbox": [
+    [
+     -9.19654,
+     -16.4741,
+     -3.23196
+    ],
+    [
+     9.19654,
+     12.3721,
+     13.0882
+    ]
+   ]
+  },
+  "EyebrowL": {
+   "faces": 310,
+   "verts": 353,
+   "bbox": [
+    [
+     0.702278,
+     3.51369,
+     6.80367
+    ],
+    [
+     6.30313,
+     7.80147,
+     10.7439
+    ]
+   ]
+  },
+  "EyebrowR": {
+   "faces": 310,
+   "verts": 353,
+   "bbox": [
+    [
+     -6.30313,
+     3.51369,
+     6.80367
+    ],
+    [
+     -0.702278,
+     7.80147,
+     10.7439
+    ]
+   ]
+  },
+  "EyeL": {
+   "faces": 1598,
+   "verts": 1570,
+   "bbox": [
+    [
+     1.5924,
+     2.06916,
+     6.34205
+    ],
+    [
+     4.59649,
+     5.15949,
+     9.64757
+    ]
+   ]
+  },
+  "EyeR": {
+   "faces": 1598,
+   "verts": 1570,
+   "bbox": [
+    [
+     -4.59649,
+     2.06916,
+     6.34205
+    ],
+    [
+     -1.5924,
+     5.15949,
+     9.64757
+    ]
+   ]
+  },
+  "Eyelashes": {
+   "faces": 1080,
+   "verts": 1368,
+   "bbox": [
+    [
+     -5.35379,
+     2.41782,
+     8.64143
+    ],
+    [
+     5.35379,
+     4.18019,
+     10.6123
+    ]
+   ]
+  },
+  "EyeShadow": {
+   "faces": 612,
+   "verts": 760,
+   "bbox": [
+    [
+     -4.63852,
+     2.46075,
+     8.62054
+    ],
+    [
+     4.63852,
+     4.44502,
+     9.691
+    ]
+   ]
+  },
+  "TeethUpper": {
+   "faces": 2244,
+   "verts": 2208,
+   "bbox": [
+    [
+     -3.25617,
+     -3.53413,
+     5.13626
+    ],
+    [
+     3.25617,
+     -0.645485,
+     10.7917
+    ]
+   ]
+  },
+  "TeethLower": {
+   "faces": 2246,
+   "verts": 2204,
+   "bbox": [
+    [
+     -3.04365,
+     -5.94804,
+     5.29623
+    ],
+    [
+     3.04365,
+     -2.97002,
+     10.5788
+    ]
+   ]
+  },
+  "GumsUpper": {
+   "faces": 1284,
+   "verts": 1301,
+   "bbox": [
+    [
+     -3.52945,
+     -5.20578,
+     0.990029
+    ],
+    [
+     3.52945,
+     -0.78826,
+     10.7725
+    ]
+   ]
+  },
+  "GumsLower": {
+   "faces": 1180,
+   "verts": 1281,
+   "bbox": [
+    [
+     -3.31168,
+     -5.57947,
+     3.33944
+    ],
+    [
+     3.31168,
+     -2.41933,
+     10.478
+    ]
+   ]
+  },
+  "Tongue": {
+   "faces": 508,
+   "verts": 602,
+   "bbox": [
+    [
+     -2.46015,
+     -4.76183,
+     3.33944
+    ],
+    [
+     2.46015,
+     -2.88797,
+     8.74049
+    ]
+   ]
+  },
+  "BackHead": {
+   "faces": 4804,
+   "verts": 5015,
+   "bbox": [
+    [
+     -12.4162,
+     -19.3084,
+     -9.23216
+    ],
+    [
+     12.4162,
+     14.5047,
+     10.8342
+    ]
+   ]
+  }
+ },
+ "blendshapes": [
+  "browDown_L",
+  "browDown_R",
+  "browInnerUp_L",
+  "browInnerUp_R",
+  "browOuterUp_L",
+  "browOuterUp_R",
+  "cheekPuff_L",
+  "cheekPuff_R",
+  "cheekSquint_L",
+  "cheekSquint_R",
+  "eyeBlink_L",
+  "eyeBlink_R",
+  "eyeLookDown_L",
+  "eyeLookDown_R",
+  "eyeLookIn_L",
+  "eyeLookIn_R",
+  "eyeLookOut_L",
+  "eyeLookOut_R",
+  "eyeLookUp_L",
+  "eyeLookUp_R",
+  "eyeSquint_L",
+  "eyeSquint_R",
+  "eyeWide_L",
+  "eyeWide_R",
+  "jawForward",
+  "jawLeft",
+  "jawOpen",
+  "jawRight",
+  "mouthClose",
+  "mouthDimple_L",
+  "mouthDimple_R",
+  "mouthFrown_L",
+  "mouthFrown_R",
+  "mouthFunnel",
+  "mouthLeft",
+  "mouthLowerDown_L",
+  "mouthLowerDown_R",
+  "mouthPress_L",
+  "mouthPress_R",
+  "mouthPucker",
+  "mouthRight",
+  "mouthRollLower",
+  "mouthRollUpper",
+  "mouthShrugLower",
+  "mouthShrugUpper",
+  "mouthSmile_L",
+  "mouthSmile_R",
+  "mouthStretch_L",
+  "mouthStretch_R",
+  "mouthUpperUp_L",
+  "mouthUpperUp_R",
+  "noseSneer_L",
+  "noseSneer_R"
+ ]
+}

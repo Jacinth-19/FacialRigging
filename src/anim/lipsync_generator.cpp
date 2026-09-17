@@ -64,7 +64,7 @@ AnimationClip LipSyncGenerator::generate(const FeatureTrack& features, const std
             float phase = std::fmod(t + 0.9f, settings.blinkIntervalSec);
             if (phase < settings.blinkDurationSec) blinkW = std::sin(float(M_PI) * phase / settings.blinkDurationSec);
         }
-        if (jaw) jaw->addKey(t, jawW);
+        if (jaw) jaw->addKey(t, jawW * settings.jawShapeScale);
         if (smile) smile->addKey(t, pose.smile);
         if (pucker) pucker->addKey(t, pose.pucker);
         if (wide) wide->addKey(t, pose.wide);
@@ -102,7 +102,7 @@ LipSyncGenerator::MouthPose LipSyncGenerator::mouthPose(const VisemeFrame& v, fl
 
 void LipSyncGenerator::applyVisemeToRig(const VisemeFrame& v, const AudioFrameFeatures& f, Rig& rig) const {
     MouthPose m = mouthPose(v, f.loudness);
-    rig.setBlendWeight(shapes::JawOpen, m.jawOpen); rig.setBlendWeight(shapes::MouthSmile, m.smile);
+    rig.setBlendWeight(shapes::JawOpen, m.jawOpen * settings.jawShapeScale); rig.setBlendWeight(shapes::MouthSmile, m.smile);
     rig.setBlendWeight(shapes::MouthPucker, m.pucker); rig.setBlendWeight(shapes::MouthWide, m.wide);
     rig.setBlendWeight(shapes::LipsPress, m.lipsPress); rig.setBlendWeight(shapes::MouthFunnel, m.funnel);
     int jaw = rig.skeleton.find("Jaw");

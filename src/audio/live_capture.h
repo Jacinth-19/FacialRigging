@@ -6,6 +6,8 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
+#include <array>
 #include <vector>
 
 namespace fr {
@@ -24,6 +26,11 @@ public:
     static std::vector<AudioDevice> listInputDevices(std::string* error = nullptr);
 
     bool start(int deviceIndex = -1, int sampleRate = 16000, std::string* error = nullptr);
+    /// Device index that selects the built-in test signal (synthetic speech looped through the
+    /// exact capture path) - lets the live pipeline be exercised on machines without a microphone.
+    static constexpr int kTestSignalDevice = -2;
+    /// Human-readable summary of what PortAudio found (host APIs, default input) for diagnostics.
+    static std::string backendInfo();
     void stop();
     bool running() const { return running_; }
     int sampleRate() const { return sampleRate_; }
@@ -46,6 +53,9 @@ public:
 
 private:
     void* stream_ = nullptr;
+    // test-signal source (no PortAudio): a thread pushes synthetic speech in real time
+    std::unique_ptr<std::thread> fakeThread_;
+    std::atomic<bool> fakeRun_{false};
     std::atomic<bool> running_{false};
     int sampleRate_ = 16000;
     mutable std::mutex mutex_;

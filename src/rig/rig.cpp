@@ -1,4 +1,6 @@
 #include "rig/rig.h"
+#include "rig/blendshape_io.h"
+#include <map>
 #include "rig/rbf_deformer.h"
 #include "core/raycast.h"
 #include <glm/gtc/matrix_transform.hpp>
@@ -236,6 +238,21 @@ void Rig::buildDefaultFaceRig() {
         skin[i].add(0, 1.0f - jw);
         skin[i].normalize();
     }
+    // Anatomical parts (when the OBJ has named groups): rigid parts get hard weights so the
+    // lower teeth/gums/tongue travel with the jaw and everything else stays on the head.
+    const PartInfo parts = detectParts();
+    auto hard = [&](int part, int bone) {
+        if (part < 0) return;
+        for (uint32_t v : mesh.partVertices(part)) { skin[v] = VertexInfluence{}; skin[v].add(bone, 1.0f); skin[v].normalize(); }
+    };
+    hard(parts.teethLower, 1); hard(parts.gumsLower, 1); hard(parts.tongue, 1);
+    hard(parts.teethUpper, 0); hard(parts.gumsUpper, 0); hard(parts.eyeL, 0); hard(parts.eyeR, 0); hard(parts.browL, 0); hard(parts.browR, 0); hard(parts.lashes, 0);
+    if (parts.any()) {
+        // With a real inner mouth the jaw pivot sits at the condyle: level with the ear canal,
+        // roughly at the back third of the head.
+        glm::vec3 tlo, thi; mesh.partBounds(parts.teethLower >= 0 ? parts.teethLower : parts.face, tlo, thi);
+        skeleton.bones[1].bindTranslation = glm::vec3(0.0f, (0.5f * (tlo.y + thi.y) + 0.10f * H) - lo.y, centre.z - 0.12f * D - centre.z);
+    }
 
     // --- procedural blendshapes
     blendShapes.clear();
@@ -301,6 +318,60 @@ void Rig::buildDefaultFaceRig() {
     cp = addControlPoint(surf(browR), "BrowR");          bindToBlendShape(cp, findBlendShape(shapes::BrowRaise), glm::vec3(0, 1, 0), 0.04f * H);
     cp = addControlPoint(surf(eyeL), "EyelidL");         bindToBlendShape(cp, findBlendShape(shapes::EyeBlink), glm::vec3(0, -1, 0), 0.02f * H);
     cp = addControlPoint(surf(eyeR), "EyelidR");         bindToBlendShape(cp, findBlendShape(shapes::EyeBlink), glm::vec3(0, -1, 0), 0.02f * H);
+}
+
+Rig::PartInfo Rig::detectParts() const {
+    PartInfo p;
+    auto find = [&](std::initializer_list<const char*> names) { for (auto n : names) { int i = mesh.findPart(n); if (i >= 0) return i; } return -1; };
+    p.face = find({"Face", "face", "Head", "head", "skin"});
+    p.browL = find({"EyebrowL", "eyebrow_L", "BrowL", "brow_L"});
+    p.browR = find({"EyebrowR", "eyebrow_R", "BrowR", "brow_R"});
+    p.eyeL = find({"EyeL", "eye_L", "EyeballL", "LeftEye"});
+    p.eyeR = find({"EyeR", "eye_R", "EyeballR", "RightEye"});
+    p.teethUpper = find({"TeethUpper", "UpperTeeth", "teeth_upper"});
+    p.teethLower = find({"TeethLower", "LowerTeeth", "teeth_lower"});
+    p.gumsUpper = find({"GumsUpper", "UpperGums"});
+    p.gumsLower = find({"GumsLower", "LowerGums"});
+    p.tongue = find({"Tongue", "tongue"});
+    p.lashes = find({"Eyelashes", "eyelashes", "Lashes"});
+    return p;
+}
+
+int Rig::installAuthoredBlendShapes(const std::vector<BlendShape>& authored) {
+    // Merge into canonical shapes first (dense accumulate), then append all source shapes.
+    const size_t n = mesh.vertexCount();
+    std::map<std::string, std::vector<glm::vec3>> canon;
+    for (const auto& a : authored) {
+        std::string c = canonicalShapeName(a.name);
+        if (c.empty()) continue;
+        auto& dense = canon[c]; if (dense.empty()) dense.assign(n, glm::vec3(0.0f));
+        for (size_t k = 0; k < a.indices.size(); ++k) if (a.indices[k] < n) dense[a.indices[k]] += a.deltas[k];
+    }
+    // Shapes that combine L+R halves were summed - that is what we want (symmetric drive).
+    // BrowRaise merges inner+outer per side; halve to keep the peak displacement sane.
+    if (canon.count(shapes::BrowRaise)) for (auto& d : canon[shapes::BrowRaise]) d *= 0.5f;
+    std::vector<BlendShape> shapesOut;
+    int covered = 0;
+    for (const char* name : shapes::All) {
+        BlendShape bs; bs.name = name;
+        auto it = canon.find(name);
+        if (it != canon.end()) {
+            ++covered;
+            for (size_t i = 0; i < n; ++i) if (glm::dot(it->second[i], it->second[i]) > 1e-14f) { bs.indices.push_back(uint32_t(i)); bs.deltas.push_back(it->second[i]); }
+        } else {
+            int old = findBlendShape(name);
+            if (old >= 0) bs = blendShapes[size_t(old)]; // keep the procedural fallback
+        }
+        shapesOut.push_back(std::move(bs));
+    }
+    for (const auto& a : authored) { shapesOut.push_back(a); shapesOut.back().weight = 0.0f; }
+    blendShapes = std::move(shapesOut);
+    // Rebind control points to the new indices (names are stable).
+    for (auto& cp : controlPoints) if (cp.binding == BindingType::BlendShape) {
+        // The default CPs bind to canonical shapes whose indices are unchanged (same order as shapes::All).
+        if (cp.target >= int(blendShapes.size())) cp.binding = BindingType::Unbound;
+    }
+    return covered;
 }
 
 } // namespace fr

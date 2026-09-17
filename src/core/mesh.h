@@ -6,9 +6,18 @@
 
 namespace fr {
 
+/// A named contiguous range of triangles (OBJ `g`/`o` group) - e.g. "EyebrowL", "TeethLower".
+struct MeshPart {
+    std::string name;
+    uint32_t firstIndex = 0;   ///< offset into Mesh::indices
+    uint32_t indexCount = 0;   ///< multiple of 3
+};
+
 /// Triangle mesh with per-vertex attributes. Indices are triangles (3 per face).
 struct Mesh {
     std::string name = "mesh";
+    std::vector<MeshPart> parts;        ///< optional; empty means a single unnamed part
+    std::vector<uint32_t> sourceVertex; ///< optional: OBJ `v` index each vertex came from (vertices are split on uv/normal seams)
     std::vector<glm::vec3> positions;   ///< bind-pose positions
     std::vector<glm::vec3> normals;     ///< per-vertex normals (recomputed on demand)
     std::vector<glm::vec2> uvs;         ///< optional, same size as positions or empty
@@ -24,6 +33,11 @@ struct Mesh {
 
     glm::vec3 boundsMin() const;
     glm::vec3 boundsMax() const;
+    int findPart(const std::string& name) const;
+    /// Vertex indices used by a part (unique, sorted); all vertices when part < 0.
+    std::vector<uint32_t> partVertices(int part) const;
+    /// Bounds of a part (or the whole mesh when part < 0).
+    void partBounds(int part, glm::vec3& lo, glm::vec3& hi) const;
     /// Uniformly rescales and recentres so the mesh fits in a unit-ish box (useful for arbitrary imports).
     void normalizeToUnit();
     /// Rotates a Z-up mesh (common for scanned/archaeological data) into the app's Y-up frame.

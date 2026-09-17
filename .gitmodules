@@ -16,3 +16,6 @@
 [submodule "third_party/portaudio"]
 	path = third_party/portaudio
 	url = https://github.com/PortAudio/portaudio.git
+[submodule "third_party/alsa-lib"]
+	path = third_party/alsa-lib
+	url = https://github.com/alsa-project/alsa-lib.git

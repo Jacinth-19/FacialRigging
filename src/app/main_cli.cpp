@@ -4,6 +4,8 @@
 #include "app/pipeline.h"
 #include "core/obj_io.h"
 #include "audio/live_capture.h"
+#include <chrono>
+#include <thread>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -26,6 +28,7 @@ Options:
   --model-pt <file.pt>      TorchScript model for --mapper ml (default: built-in MLP)
   --up <auto|y|z>           up axis of the OBJ (default auto-detect; scans are often Z-up)
   --list-devices            list PortAudio input devices and exit
+  --live-test <dev> <sec>   run live capture from device index (-1 default, -2 built-in test signal) and print visemes
   --fps <n>                 bake frame rate (default 30)
   --intensity <f>           global mouth intensity (default 1.0)
   --save-audio <file.wav>   write the (synthetic) audio next to the export
@@ -58,9 +61,27 @@ int main(int argc, char** argv) {
         else if (a == "--up") { std::string u = next(); pipe.modelUpAxis = u == "z" ? Pipeline::UpAxis::Z : u == "y" ? Pipeline::UpAxis::Y : Pipeline::UpAxis::Auto; }
         else if (a == "--list-devices") {
             std::string err; auto devs = LiveCapture::listInputDevices(&err);
-            if (devs.empty()) std::printf("no input devices: %s\n", err.c_str());
+            std::printf("%s\n", LiveCapture::backendInfo().c_str());
+            if (!err.empty()) std::printf("note: %s\n", err.c_str());
             for (auto& d : devs) std::printf("[%d] %s (%d ch, %.0f Hz)\n", d.index, d.name.c_str(), d.maxInputChannels, d.defaultSampleRate);
             return 0;
+        }
+        else if (a == "--live-test") {
+            // Capture from a device (default: -2 test signal) for N seconds and print the viseme stream.
+            int dev = std::atoi(next().c_str()); double secs = std::atof(next().c_str()); if (secs <= 0) secs = 3;
+            LiveCapture lc; std::string err;
+            lc.setMapper(pipe.makeMapper());
+            if (!lc.start(dev, 16000, &err)) { std::fprintf(stderr, "live capture failed: %s\n", err.c_str()); return 1; }
+            auto t0 = std::chrono::steady_clock::now(); int frames = 0, speaking = 0;
+            while (std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() < secs) {
+                auto f = lc.poll();
+                if (f.valid) { ++frames; if (f.viseme.dominant() != Viseme::Silence) ++speaking;
+                    std::printf("t=%6.2f level=%.2f loud=%.2f pitch=%5.0f  %s\n", f.features.time, lc.inputLevel(), f.features.loudness, f.features.pitchHz, visemeName(f.viseme.dominant())); }
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+            lc.stop();
+            std::printf("captured %d analysis frames, %d non-silent\n", frames, speaking);
+            return frames > 0 ? 0 : 1;
         }
         else if (a == "--fps") pipe.lipSync.frameRate = float(std::atof(next().c_str()));
         else if (a == "--intensity") pipe.lipSync.intensity = float(std::atof(next().c_str()));

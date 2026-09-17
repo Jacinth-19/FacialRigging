@@ -44,6 +44,26 @@ void Mesh::normalizeToUnit() {
     for (auto& p : positions) p = (p - c) * s;
 }
 
+int Mesh::findPart(const std::string& name) const {
+    for (size_t i = 0; i < parts.size(); ++i) if (parts[i].name == name) return int(i);
+    return -1;
+}
+
+std::vector<uint32_t> Mesh::partVertices(int part) const {
+    std::vector<uint32_t> v;
+    if (part < 0 || part >= int(parts.size())) { v.resize(positions.size()); for (size_t i = 0; i < v.size(); ++i) v[i] = uint32_t(i); return v; }
+    const MeshPart& p = parts[size_t(part)];
+    v.assign(indices.begin() + p.firstIndex, indices.begin() + p.firstIndex + p.indexCount);
+    std::sort(v.begin(), v.end()); v.erase(std::unique(v.begin(), v.end()), v.end());
+    return v;
+}
+
+void Mesh::partBounds(int part, glm::vec3& lo, glm::vec3& hi) const {
+    lo = glm::vec3(1e30f); hi = glm::vec3(-1e30f);
+    for (uint32_t i : partVertices(part)) { lo = glm::min(lo, positions[i]); hi = glm::max(hi, positions[i]); }
+    if (lo.x > hi.x) lo = hi = glm::vec3(0.0f);
+}
+
 void Mesh::zUpToYUp() {
     for (auto& p : positions) p = glm::vec3(p.x, p.z, -p.y);
     for (auto& n : normals) n = glm::vec3(n.x, n.z, -n.y);

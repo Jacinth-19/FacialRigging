@@ -111,6 +111,16 @@ public:
     /// MouthPucker, MouthWide, LipsPress, BrowRaise, EyeBlink, MouthFunnel).
     void buildDefaultFaceRig();
 
+    /// Replaces the procedural shapes with authored ones (e.g. ICT-FaceKit / ARKit set). Shapes
+    /// whose names map to a canonical shape (see canonicalShapeName) are merged into it so the
+    /// lip-sync generator keeps working; every source shape is also kept under its own name.
+    /// Rebinds the default control points. Returns the number of canonical shapes covered.
+    int installAuthoredBlendShapes(const std::vector<BlendShape>& authored);
+
+    /// Names of mesh parts (from OBJ groups) recognised for anatomical rigging.
+    struct PartInfo { int face = -1, browL = -1, browR = -1, eyeL = -1, eyeR = -1, teethUpper = -1, teethLower = -1, gumsUpper = -1, gumsLower = -1, tongue = -1, lashes = -1; bool any() const { return face >= 0 || teethLower >= 0 || browL >= 0; } };
+    PartInfo detectParts() const;
+
 private:
     void applySkin(std::vector<glm::vec3>& v) const;
     void applyBlendShapes(std::vector<glm::vec3>& v) const;

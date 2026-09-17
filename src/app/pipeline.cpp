@@ -2,6 +2,9 @@
 #include "core/obj_io.h"
 #include "export/exporter.h"
 #include "audio/ml_viseme_mapper.h"
+#include "rig/blendshape_io.h"
+#include <fstream>
+#include <iterator>
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -47,16 +50,47 @@ bool Pipeline::loadModel(const std::string& path, std::string* error) {
         if (!loadObj(path, m, &err)) { if (error) *error = err; note("Model load failed: " + err); return false; }
         bool zUp = modelUpAxis == UpAxis::Z || (modelUpAxis == UpAxis::Auto && m.looksZUp());
         if (zUp) { m.zUpToYUp(); note("Model treated as Z-up: rotated to Y-up (override with --up y)"); }
+        glm::vec3 lo = m.boundsMin(), hi = m.boundsMax();
+        modelTransform.zUp = zUp; modelTransform.centre = 0.5f * (lo + hi);
+        float ext = std::max({hi.x - lo.x, hi.y - lo.y, hi.z - lo.z});
+        modelTransform.scale = ext > 1e-9f ? 1.0f / ext : 1.0f;
         m.normalizeToUnit();
-        note("Loaded " + path + " (" + std::to_string(m.vertexCount()) + " verts, " + std::to_string(m.triangleCount()) + " tris)");
+        std::string partsNote;
+        if (!m.parts.empty()) { partsNote = ", " + std::to_string(m.parts.size()) + " parts:"; for (auto& pt : m.parts) partsNote += " " + pt.name; }
+        note("Loaded " + path + " (" + std::to_string(m.vertexCount()) + " verts, " + std::to_string(m.triangleCount()) + " tris" + partsNote + ")");
     }
     rig.setMesh(m);
+    authoredShapes_.clear(); authoredShapesPath.clear(); authoredCanonicalCoverage = 0;
+    // Authored blendshapes: <model>.fbs next to the OBJ (see tools/prepare_ict_facekit.py)
+    if (!path.empty()) {
+        auto dot = path.find_last_of('.');
+        std::string fbs = (dot == std::string::npos ? path : path.substr(0, dot)) + ".fbs";
+        std::string err;
+        std::vector<BlendShape> shapesIn;
+        size_t srcCount = 0; for (uint32_t sv : rig.mesh.sourceVertex) srcCount = std::max<size_t>(srcCount, sv + 1);
+        if (loadBlendShapesFRBS(fbs, shapesIn, srcCount ? srcCount : rig.mesh.vertexCount(), &err)) {
+            remapBlendShapesToMesh(shapesIn, rig.mesh);
+            for (auto& bs : shapesIn) for (auto& d : bs.deltas) { if (modelTransform.zUp) d = glm::vec3(d.x, d.z, -d.y); d *= modelTransform.scale; }
+            authoredShapes_ = std::move(shapesIn); authoredShapesPath = fbs;
+            note("Loaded " + std::to_string(authoredShapes_.size()) + " authored blendshapes from " + fbs);
+        } else if (std::ifstream(fbs).good()) note("Blendshape file ignored: " + err);
+    }
     return true;
 }
 
 void Pipeline::buildDefaultRig() {
     rig.buildDefaultFaceRig();
-    note("Built default face rig: " + std::to_string(rig.skeleton.bones.size()) + " bones, " + std::to_string(rig.blendShapes.size()) + " blendshapes, " + std::to_string(rig.controlPoints.size()) + " control points");
+    if (!authoredShapes_.empty()) {
+        authoredCanonicalCoverage = rig.installAuthoredBlendShapes(authoredShapes_);
+        // An authored jawOpen already drops the whole lower face; keep the bone for the inner
+        // mouth parts (teeth/tongue) but scale the two so they do not add up to an over-open jaw.
+        lipSync.jawShapeScale = 0.6f; lipSync.jawBoneDegrees = 6.0f;
+        note("Installed authored blendshapes: " + std::to_string(authoredCanonicalCoverage) + "/" + std::to_string(std::size(shapes::All)) + " canonical shapes replaced, " + std::to_string(authoredShapes_.size()) + " source shapes kept");
+    }
+    auto parts = rig.detectParts();
+    std::string anat;
+    if (parts.any()) anat = " (anatomical parts: " + std::string(parts.teethLower >= 0 ? "lower teeth/gums/tongue follow the jaw; " : "") + std::string(parts.browL >= 0 ? "eyebrows; " : "") + std::string(parts.eyeL >= 0 ? "eyeballs" : "") + ")";
+    note("Built default face rig: " + std::to_string(rig.skeleton.bones.size()) + " bones, " + std::to_string(rig.blendShapes.size()) + " blendshapes, " + std::to_string(rig.controlPoints.size()) + " control points" + anat);
 }
 
 bool Pipeline::loadAudio(const std::string& path, std::string* error) {
@@ -72,7 +106,9 @@ std::shared_ptr<VisemeMapper> Pipeline::makeMapper(std::string* noteOut) const {
     if (mapperKind == MapperKind::Ml) {
         auto ml = std::make_shared<MlVisemeMapper>();
         std::string err;
-        bool ok = mlModelPath.empty() ? ml->loadBuiltin(&err) : ml->load(mlModelPath, &err);
+        bool ok = false;
+        if (!mlModelPath.empty()) ok = ml->load(mlModelPath, &err);
+        else { ok = ml->loadDefault(assetDir.empty() ? "assets" : assetDir, &err); if (!ok) { std::string e2; ok = ml->loadBuiltin(&e2); if (!ok) err += "; " + e2; } }
         if (ok) { if (noteOut) *noteOut = "ML viseme mapper: " + ml->modelInfo(); return ml; }
         if (noteOut) *noteOut = "ML mapper unavailable (" + err + "); using rule-based mapper";
     } else if (noteOut) *noteOut = "rule-based viseme mapper";

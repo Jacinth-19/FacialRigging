@@ -6,6 +6,7 @@
 #include "rig/rig.h"
 #include <functional>
 #include <memory>
+#include <glm/glm.hpp>
 #include <string>
 #include <vector>
 
@@ -34,12 +35,22 @@ public:
 
     enum class MapperKind { RuleBased, Ml };
     MapperKind mapperKind = MapperKind::RuleBased;
-    std::string mlModelPath;
+    std::string mlModelPath;                      ///< .frvm or TorchScript .pt; empty -> assets/models/viseme_mlp.frvm (else built-in torch MLP)
+    std::string assetDir = FR_ASSET_DIR;          ///< where assets/ lives
     enum class UpAxis { Auto, Y, Z };
     UpAxis modelUpAxis = UpAxis::Auto;            ///< how to interpret imported OBJ orientation                      ///< TorchScript .pt; empty -> built-in MLP
     std::shared_ptr<VisemeMapper> makeMapper(std::string* note = nullptr) const;
 
-    bool loadModel(const std::string& path, std::string* error = nullptr); ///< empty path -> procedural head
+    bool loadModel(const std::string& path, std::string* error = nullptr);
+    /// Transform applied to the last loaded model (so external data such as blendshape deltas can follow).
+    struct ModelTransform { bool zUp = false; glm::vec3 centre{0.0f}; float scale = 1.0f; };
+    ModelTransform modelTransform;
+    std::string authoredShapesPath;             ///< .fbs loaded alongside the model ("" = none)
+    int authoredCanonicalCoverage = 0;
+    const std::vector<BlendShape>& authoredShapes() const { return authoredShapes_; }
+private:
+    std::vector<BlendShape> authoredShapes_;
+public: ///< empty path -> procedural head
     void buildDefaultRig();
     bool loadAudio(const std::string& path, std::string* error = nullptr);  ///< empty path -> synthetic speech
     bool generateAnimation();

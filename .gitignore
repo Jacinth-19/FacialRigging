@@ -1,0 +1,9 @@
+build/
+build-*/
+out/
+.cache/
+*.swp
+compile_commands.json
+# generated outputs
+*.fbx
+exports/

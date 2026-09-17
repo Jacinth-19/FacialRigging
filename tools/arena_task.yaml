@@ -1,0 +1,26 @@
+# Arena AI agentic-mode task template for FacialRigging.
+# An agent (or a human) runs:  python3 tools/run_arena_task.py tools/arena_task.yaml
+# Every step maps onto fr_cli flags; unknown keys are ignored so the file can carry agent metadata.
+agent_name: FaceAnimator
+task: Export animated face from speech
+app: build/fr_cli                 # path to the headless binary (facial_rigging --export also works)
+steps:
+  - load_model: assets/sample_head.obj      # empty or omitted -> procedural head
+  - rig_points:
+      method: default_face_rig              # bones (Head, Jaw) + 8 blendshapes + 8 control points
+  - import_audio: assets/sample_speech.wav  # WAV (PCM/float); empty -> synthetic speech
+  - generate_animation:
+      model: rule_based_viseme              # currently the only mapper; ML mappers plug in here
+      fps: 30
+      intensity: 1.0
+  - export:
+      output: out/scene                     # base name; extension from format
+      format: fbx                           # fbx | glb | gltf  (fbx falls back to glb without the SDK)
+  - generate_variations:
+      changes:
+        - Increase smile
+        - Raise eyebrows
+        - intensity=1.4
+metadata:
+  project: FaceProject
+  author: TestUser

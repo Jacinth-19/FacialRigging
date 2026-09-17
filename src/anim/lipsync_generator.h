@@ -18,7 +18,19 @@ struct LipSyncSettings {
     int smoothingRadiusFrames = 1;   ///< box-filter radius applied to baked curves
     float jawBoneDegrees = 12.0f;    ///< peak jaw bone rotation (x-axis) at full JawOpen
     float jawShapeScale = 1.0f;      ///< multiplier on the JawOpen blendshape (set <1 when the shape already includes jaw drop, e.g. authored ARKit sets)
+    // --- performance layer (on top of the phonetic mouth shapes)
+    std::string emotion = "neutral"; ///< neutral | happy | sad | angry | surprised
+    float emotionAmount = 0.0f;      ///< 0..1 strength of the emotion preset
+    float headMotion = 0.5f;         ///< 0..1 audio-driven head nods / sways (Head bone)
+    float gazeMotion = 0.5f;         ///< 0..1 saccades + slow gaze drift (eye bones, when present)
+    unsigned seed = 1;               ///< deterministic randomness for saccades / head sway
 };
+
+/// Static blendshape offsets for an emotion preset (added to the lip-sync curves).
+struct ExpressionPreset { const char* name; float smile, frown, browRaise, browDown, eyeWide, jaw, lipsPress, pucker; };
+const ExpressionPreset* findExpressionPreset(const std::string& name);   ///< nullptr when unknown
+extern const ExpressionPreset kExpressionPresets[];
+extern const int kExpressionPresetCount;
 
 /// Turns acoustic features + viseme probabilities into a baked AnimationClip that
 /// targets the default face rig's blendshape names and Jaw bone.

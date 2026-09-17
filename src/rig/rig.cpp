@@ -270,7 +270,18 @@ void Rig::buildDefaultFaceRig() {
         for (uint32_t v : mesh.partVertices(part)) { skin[v] = VertexInfluence{}; skin[v].add(bone, 1.0f); skin[v].normalize(); }
     };
     hard(parts.teethLower, 1); hard(parts.gumsLower, 1); hard(parts.tongue, 1);
-    hard(parts.teethUpper, 0); hard(parts.gumsUpper, 0); hard(parts.eyeL, 0); hard(parts.eyeR, 0); hard(parts.browL, 0); hard(parts.browR, 0); hard(parts.lashes, 0);
+    hard(parts.teethUpper, 0); hard(parts.gumsUpper, 0); hard(parts.browL, 0); hard(parts.browR, 0); hard(parts.lashes, 0);
+    // Eye bones: one per eyeball part, pivot at the eyeball centre, child of Head. Only the
+    // eyeball vertices follow them (lids/lashes stay skinned to the head), which gives look-at.
+    if (parts.eyeL >= 0 && parts.eyeR >= 0) {
+        auto addEye = [&](const char* name, int part) {
+            glm::vec3 elo, ehi; mesh.partBounds(part, elo, ehi);
+            Bone e; e.name = name; e.parent = 0; e.bindTranslation = 0.5f * (elo + ehi) - skeleton.bones[0].bindTranslation;
+            skeleton.bones.push_back(e);
+            hard(part, int(skeleton.bones.size()) - 1);
+        };
+        addEye(kEyeLBone, parts.eyeL); addEye(kEyeRBone, parts.eyeR);
+    } else { hard(parts.eyeL, 0); hard(parts.eyeR, 0); }
     if (parts.any()) {
         // With a real inner mouth the jaw pivot sits at the condyle: level with the ear canal,
         // roughly at the back third of the head.
@@ -324,6 +335,21 @@ void Rig::buildDefaultFaceRig() {
         float f = falloff(p, browL, r) + falloff(p, browR, r);
         return glm::vec3(0, 0.04f * H, 0.005f * D) * std::min(f, 1.0f);
     });
+    makeShape(shapes::MouthFrown, [&](const glm::vec3& p) {
+        float l = falloff(p, cornerL, mouthR), r = falloff(p, cornerR, mouthR);
+        return glm::vec3(-0.01f * W, -0.045f * H, 0) * l + glm::vec3(0.01f * W, -0.045f * H, 0) * r;
+    });
+    makeShape(shapes::BrowDown, [&](const glm::vec3& p) {
+        glm::vec3 r(0.18f * W, 0.10f * H, 0.30f * D);
+        float l = falloff(p, browL, r), rr = falloff(p, browR, r);
+        return glm::vec3(0.015f * W, -0.03f * H, 0) * l + glm::vec3(-0.015f * W, -0.03f * H, 0) * rr; // down and inward
+    });
+    makeShape(shapes::EyeWide, [&](const glm::vec3& p) {
+        glm::vec3 r(0.12f * W, 0.08f * H, 0.25f * D);
+        float f = falloff(p, eyeL, r) + falloff(p, eyeR, r);
+        float sign = p.y > (eyeL.y) ? 1.0f : -1.0f;
+        return glm::vec3(0, sign * 0.015f * H, 0) * std::min(f, 1.0f);
+    });
     makeShape(shapes::EyeBlink, [&](const glm::vec3& p) {
         glm::vec3 r(0.12f * W, 0.07f * H, 0.25f * D);
         float f = falloff(p, eyeL, r) + falloff(p, eyeR, r);
@@ -343,6 +369,24 @@ void Rig::buildDefaultFaceRig() {
     cp = addControlPoint(surf(browR), "BrowR");          bindToBlendShape(cp, findBlendShape(shapes::BrowRaise), glm::vec3(0, 1, 0), 0.04f * H);
     cp = addControlPoint(surf(eyeL), "EyelidL");         bindToBlendShape(cp, findBlendShape(shapes::EyeBlink), glm::vec3(0, -1, 0), 0.02f * H);
     cp = addControlPoint(surf(eyeR), "EyelidR");         bindToBlendShape(cp, findBlendShape(shapes::EyeBlink), glm::vec3(0, -1, 0), 0.02f * H);
+}
+
+void Rig::setGaze(float yawDeg, float pitchDeg) {
+    glm::quat q = glm::angleAxis(glm::radians(yawDeg), glm::vec3(0, 1, 0)) * glm::angleAxis(glm::radians(-pitchDeg), glm::vec3(1, 0, 0));
+    for (const char* n : {kEyeLBone, kEyeRBone}) { int b = skeleton.find(n); if (b >= 0) skeleton.bones[size_t(b)].poseRotation = q; }
+}
+
+void Rig::lookAt(const glm::vec3& target) {
+    auto W = skeleton.bindWorldMatrices();
+    for (const char* n : {kEyeLBone, kEyeRBone}) {
+        int b = skeleton.find(n); if (b < 0) continue;
+        glm::vec3 centre(W[size_t(b)][3]);
+        glm::vec3 d = target - centre; if (glm::dot(d, d) < 1e-12f) continue;
+        d = glm::normalize(d);
+        float yaw = std::atan2(d.x, d.z), pitch = std::asin(std::clamp(d.y, -1.0f, 1.0f));
+        yaw = std::clamp(yaw, glm::radians(-35.0f), glm::radians(35.0f)); pitch = std::clamp(pitch, glm::radians(-25.0f), glm::radians(25.0f));
+        skeleton.bones[size_t(b)].poseRotation = glm::angleAxis(yaw, glm::vec3(0, 1, 0)) * glm::angleAxis(-pitch, glm::vec3(1, 0, 0));
+    }
 }
 
 Rig::PartInfo Rig::detectParts() const {
@@ -366,10 +410,12 @@ int Rig::installAuthoredBlendShapes(const std::vector<BlendShape>& authored) {
     // Merge into canonical shapes first (dense accumulate), then append all source shapes.
     const size_t n = mesh.vertexCount();
     std::map<std::string, std::vector<glm::vec3>> canon;
+    std::map<std::string, std::vector<std::string>> aliasesOf;
     for (const auto& a : authored) {
         std::string c = canonicalShapeName(a.name);
         if (c.empty()) continue;
         auto& dense = canon[c]; if (dense.empty()) dense.assign(n, glm::vec3(0.0f));
+        aliasesOf[c].push_back(a.name);
         for (size_t k = 0; k < a.indices.size(); ++k) if (a.indices[k] < n) dense[a.indices[k]] += a.deltas[k];
     }
     // Shapes that combine L+R halves were summed - that is what we want (symmetric drive).
@@ -381,7 +427,7 @@ int Rig::installAuthoredBlendShapes(const std::vector<BlendShape>& authored) {
         BlendShape bs; bs.name = name;
         auto it = canon.find(name);
         if (it != canon.end()) {
-            ++covered;
+            ++covered; bs.aliases = aliasesOf[name];
             for (size_t i = 0; i < n; ++i) if (glm::dot(it->second[i], it->second[i]) > 1e-14f) { bs.indices.push_back(uint32_t(i)); bs.deltas.push_back(it->second[i]); }
         } else {
             int old = findBlendShape(name);

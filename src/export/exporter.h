@@ -50,7 +50,18 @@ public:
     bool exportScene(const Rig&, const std::vector<AnimationClip>&, const std::string&, const ExportOptions&, std::string*) override;
 };
 
-/// Picks an exporter by file extension (".fbx" / ".glb" / ".gltf"). For ".fbx" the Autodesk SDK
+/// Plain-JSON animation clips (".json"): blendshape curves with ARKit aliases, bone rotation /
+/// translation curves. Mesh-free, so it is the lightweight interchange for retargeting and can be
+/// read back with loadClipsJson (File > Import clips).
+class JsonClipExporter : public Exporter {
+public:
+    std::string formatName() const override { return "Clip JSON"; }
+    std::string fileExtension() const override { return ".json"; }
+    bool exportScene(const Rig&, const std::vector<AnimationClip>&, const std::string&, const ExportOptions&, std::string*) override;
+};
+bool loadClipsJson(const std::string& path, std::vector<AnimationClip>& out, std::string* error = nullptr);
+
+/// Picks an exporter by file extension (".fbx" / ".glb" / ".gltf" / ".json"). For ".fbx" the Autodesk SDK
 /// exporter is preferred when compiled in, otherwise the Assimp FBX writer; glTF is the last resort.
 std::unique_ptr<Exporter> makeExporterForPath(const std::string& path, std::string* note = nullptr);
 

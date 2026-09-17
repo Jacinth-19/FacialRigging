@@ -83,7 +83,8 @@ bool loadBlendShapeOBJ(const std::string& path, const Mesh& base, BlendShape& ou
     return true;
 }
 
-std::string canonicalShapeName(const std::string& n) {
+namespace {
+const std::map<std::string, std::string>& arkitMap() {
     static const std::map<std::string, std::string> m = {
         {"jawOpen", shapes::JawOpen},
         {"mouthSmile", shapes::MouthSmile}, {"mouthSmile_L", shapes::MouthSmile}, {"mouthSmile_R", shapes::MouthSmile},
@@ -94,9 +95,26 @@ std::string canonicalShapeName(const std::string& n) {
         {"browOuterUp_L", shapes::BrowRaise}, {"browOuterUp_R", shapes::BrowRaise},
         {"eyeBlink", shapes::EyeBlink}, {"eyeBlink_L", shapes::EyeBlink}, {"eyeBlink_R", shapes::EyeBlink},
         {"mouthFunnel", shapes::MouthFunnel},
+        {"mouthFrown_L", shapes::MouthFrown}, {"mouthFrown_R", shapes::MouthFrown}, {"mouthFrown", shapes::MouthFrown},
+        {"browDown_L", shapes::BrowDown}, {"browDown_R", shapes::BrowDown}, {"browDown", shapes::BrowDown},
+        {"eyeWide_L", shapes::EyeWide}, {"eyeWide_R", shapes::EyeWide}, {"eyeWide", shapes::EyeWide},
     };
-    auto it = m.find(n);
-    return it == m.end() ? "" : it->second;
+    return m;
+}
+}
+
+std::string canonicalShapeName(const std::string& n) {
+    auto it = arkitMap().find(n);
+    return it == arkitMap().end() ? "" : it->second;
+}
+
+std::vector<std::string> arkitNamesForShape(const std::string& canonical, const Rig& rig) {
+    std::vector<std::string> out;
+    // The rig's own alias table (set when authored targets were loaded) takes precedence.
+    for (const auto& bs : rig.blendShapes) if (bs.name == canonical) for (const auto& a : bs.aliases) out.push_back(a);
+    if (!out.empty()) return out;
+    for (const auto& kv : arkitMap()) if (kv.second == canonical) out.push_back(kv.first);
+    return out;
 }
 
 } // namespace fr

@@ -23,5 +23,7 @@ bool loadBlendShapeOBJ(const std::string& path, const Mesh& base, BlendShape& ou
 /// Maps ARKit / ICT-FaceKit expression names onto the canonical shapes the animation
 /// generator drives (JawOpen, MouthSmile, ...). Returns canonical name or "" when unmapped.
 std::string canonicalShapeName(const std::string& arkitName);
+/// Inverse: ARKit / ICT names a canonical shape should drive (rig aliases first, else the table).
+std::vector<std::string> arkitNamesForShape(const std::string& canonical, const Rig& rig);
 
 } // namespace fr

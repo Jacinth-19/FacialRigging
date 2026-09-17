@@ -16,6 +16,7 @@ std::unique_ptr<Exporter> makeExporterForPath(const std::string& path, std::stri
         if (note) *note = "no FBX writer compiled in; falling back to glTF (.glb)";
         return std::make_unique<GltfExporter>();
     }
+    if (ext == ".json") return std::make_unique<JsonClipExporter>();
     return std::make_unique<GltfExporter>();
 }
 

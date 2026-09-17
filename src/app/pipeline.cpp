@@ -29,6 +29,15 @@ Variation parseVariation(const std::string& text) {
     else if (parseKV(t, "smile", "+=", x))     v.apply = [x](AnimationClip& c) { c.offsetBlendCurve(shapes::MouthSmile, x); };
     else if (parseKV(t, "brow", "+=", x))      v.apply = [x](AnimationClip& c) { c.offsetBlendCurve(shapes::BrowRaise, x); };
     else if (parseKV(t, "smooth", "=", x))     v.apply = [x](AnimationClip& c) { c.smoothBlendCurves(int(x)); };
+    else if (const ExpressionPreset* e = [&]() -> const ExpressionPreset* { for (int i = 0; i < kExpressionPresetCount; ++i) if (t.find(kExpressionPresets[i].name) != std::string::npos) return &kExpressionPresets[i]; return nullptr; }()) {
+        float amt = 0.8f; (void)parseKV(t, e->name, "=", amt);
+        v.apply = [e, amt](AnimationClip& c) {
+            c.offsetBlendCurve(shapes::MouthSmile, e->smile * amt); c.offsetBlendCurve(shapes::MouthFrown, e->frown * amt);
+            c.offsetBlendCurve(shapes::BrowRaise, e->browRaise * amt); c.offsetBlendCurve(shapes::BrowDown, e->browDown * amt);
+            c.offsetBlendCurve(shapes::EyeWide, e->eyeWide * amt); c.offsetBlendCurve(shapes::LipsPress, e->lipsPress * amt);
+            c.offsetBlendCurve(shapes::MouthPucker, e->pucker * amt); c.offsetBlendCurve(shapes::JawOpen, e->jaw * amt);
+        };
+    }
     else if (t.find("smile") != std::string::npos)      v.apply = [](AnimationClip& c) { c.offsetBlendCurve(shapes::MouthSmile, 0.35f); };
     else if (t.find("brow") != std::string::npos || t.find("eyebrow") != std::string::npos)
                                                         v.apply = [](AnimationClip& c) { c.offsetBlendCurve(shapes::BrowRaise, 0.4f); };

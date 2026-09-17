@@ -41,7 +41,7 @@ void MeshRenderer::upload(const Rig& rig) {
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, GLsizeiptr(m.indices.size() * sizeof(uint32_t)), m.indices.data(), GL_STATIC_DRAW);
     glBindVertexArray(0);
     // Blendshape deltas: dense [shape][vertex] vec3 in a texture buffer
-    shapeCount_ = int(std::min<size_t>(rig.blendShapes.size(), 32));
+    shapeCount_ = int(std::min<size_t>(rig.blendShapes.size(), 80)); // MAX_SHAPES in face.vert
     std::vector<glm::vec3> deltas(size_t(shapeCount_) * m.vertexCount(), glm::vec3(0.0f));
     for (int s = 0; s < shapeCount_; ++s) {
         auto d = rig.blendShapes[s].dense(m.vertexCount());

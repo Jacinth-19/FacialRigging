@@ -6,7 +6,7 @@ layout(location = 2) in ivec4 inBoneIDs;
 layout(location = 3) in vec4 inWeights;
 
 #define MAX_BONES 32
-#define MAX_SHAPES 32
+#define MAX_SHAPES 80
 
 uniform mat4 u_Model;
 uniform mat4 u_View;

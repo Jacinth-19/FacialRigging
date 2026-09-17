@@ -28,8 +28,9 @@ TEST_CASE("lipsync generator bakes a clip aligned to the audio") {
     REQUIRE(jaw->times.size() == size_t(clip.frameCount()));
     float maxJaw = 0; for (float v : jaw->values) { maxJaw = std::max(maxJaw, v); REQUIRE(v >= 0); REQUIRE(v <= 1); }
     CHECK(maxJaw > 0.2f);
-    REQUIRE(clip.boneRotations.size() == 1);
+    REQUIRE(clip.boneRotations.size() == 2); // Jaw + Head (audio-driven nods); no eye bones on a single-surface head
     CHECK(clip.boneRotations[0].target == "Jaw");
+    CHECK(clip.boneRotations[1].target == "Head");
     // applying the clip changes the rig, and variations modify curves as advertised
     clip.applyTo(rig, 0.75f);
     AnimationClip smile = clip; parseVariation("Increase smile").apply(smile);
@@ -97,9 +98,10 @@ TEST_CASE("Assimp FBX exporter round-trips mesh, skin, blendshapes and animation
     REQUIRE(s->mNumAnimations == 1);
     const aiAnimation* a = s->mAnimations[0];
     CHECK(std::string(a->mName.C_Str()) == "LipSync");
-    REQUIRE(a->mNumChannels == 1);
-    CHECK(std::string(a->mChannels[0]->mNodeName.C_Str()) == "Jaw");
-    CHECK(a->mChannels[0]->mNumRotationKeys >= 89);
+    REQUIRE(a->mNumChannels == 2);
+    CHECK(std::string(a->mChannels[0]->mNodeName.C_Str()) == "Head"); // bone order
+    CHECK(std::string(a->mChannels[1]->mNodeName.C_Str()) == "Jaw");
+    CHECK(a->mChannels[1]->mNumRotationKeys >= 89);
     REQUIRE(a->mNumMorphMeshChannels == 1);
     CHECK(a->mMorphMeshChannels[0]->mNumKeys == unsigned(p.clip.frameCount()));
     // duration in seconds must match the clip

@@ -19,7 +19,7 @@ struct Variation {
     std::function<void(AnimationClip&)> apply;
 };
 /// Parses free-form variation descriptions used by the agent prompt ("Increase smile",
-/// "Raise eyebrows", "intensity=1.4", "smile+=0.3", "brow+=0.2", "smooth=3").
+/// "Raise eyebrows", "intensity=1.4", "smile+=0.3", "brow+=0.2", "smooth=3", "happy", "angry=0.5", ...).
 Variation parseVariation(const std::string& text);
 
 /// Headless orchestration shared by the CLI, the GUI and the agent entry point:

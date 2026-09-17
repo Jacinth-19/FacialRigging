@@ -45,6 +45,7 @@ struct BlendShape {
     std::vector<uint32_t> indices;   ///< affected vertices (sparse)
     std::vector<glm::vec3> deltas;   ///< same length as indices
     float weight = 0.0f;             ///< current weight, typically [0,1]
+    std::vector<std::string> aliases; ///< source (ARKit/ICT) shape names merged into this canonical shape
     /// Expands to a dense delta array over `vertexCount` vertices.
     std::vector<glm::vec3> dense(size_t vertexCount) const;
 };
@@ -122,6 +123,18 @@ public:
     /// Rebinds the default control points. Returns the number of canonical shapes covered.
     int installAuthoredBlendShapes(const std::vector<BlendShape>& authored);
 
+    /// Bone names created by buildDefaultFaceRig.
+    static constexpr const char* kHeadBone = "Head";
+    static constexpr const char* kJawBone = "Jaw";
+    static constexpr const char* kEyeLBone = "EyeL";
+    static constexpr const char* kEyeRBone = "EyeR";
+    /// Gaze: rotates both eye bones so the eyeballs look toward `target` (mesh space). No-op
+    /// without eye bones (single-surface heads).
+    void lookAt(const glm::vec3& target);
+    /// Gaze as yaw/pitch (degrees, +yaw = look to the model's left/+x, +pitch = look up).
+    void setGaze(float yawDeg, float pitchDeg);
+    bool hasEyeBones() const { return skeleton.find(kEyeLBone) >= 0 && skeleton.find(kEyeRBone) >= 0; }
+
     /// Names of mesh parts (from OBJ groups) recognised for anatomical rigging.
     struct PartInfo { int face = -1, browL = -1, browR = -1, eyeL = -1, eyeR = -1, teethUpper = -1, teethLower = -1, gumsUpper = -1, gumsLower = -1, tongue = -1, lashes = -1; bool any() const { return face >= 0 || teethLower >= 0 || browL >= 0; } };
     PartInfo detectParts() const;
@@ -142,7 +155,10 @@ inline constexpr const char* LipsPress = "LipsPress";
 inline constexpr const char* BrowRaise = "BrowRaise";
 inline constexpr const char* EyeBlink = "EyeBlink";
 inline constexpr const char* MouthFunnel = "MouthFunnel";
-inline constexpr const char* All[] = {JawOpen, MouthSmile, MouthPucker, MouthWide, LipsPress, BrowRaise, EyeBlink, MouthFunnel};
+inline constexpr const char* MouthFrown = "MouthFrown";
+inline constexpr const char* BrowDown = "BrowDown";
+inline constexpr const char* EyeWide = "EyeWide";
+inline constexpr const char* All[] = {JawOpen, MouthSmile, MouthPucker, MouthWide, LipsPress, BrowRaise, EyeBlink, MouthFunnel, MouthFrown, BrowDown, EyeWide};
 } // namespace shapes
 
 } // namespace fr

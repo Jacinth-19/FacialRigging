@@ -21,8 +21,9 @@ struct PaInit {
     ~PaInit() { if (err == paNoError) Pa_Terminate(); }
 };
 PaInit& paInit() { static PaInit p; return p; }
-int paCallback(const void* input, void*, unsigned long frames, const PaStreamCallbackTimeInfo*, PaStreamCallbackFlags, void* user) {
+int paCallback(const void* input, void*, unsigned long frames, const PaStreamCallbackTimeInfo*, PaStreamCallbackFlags flags, void* user) {
     auto* self = static_cast<LiveCapture*>(user);
+    if (flags & paInputOverflow) self->noteOverrun();
     if (input) self->pushSamples(static_cast<const float*>(input), frames, 1);
     return paContinue;
 }
@@ -86,13 +87,16 @@ bool LiveCapture::start(int deviceIndex, int sampleRate, std::string* error) {
         }
         AudioBuffer speech = synthesizeTestSpeech(3.0, sampleRate_);
         std::vector<float> mono = speech.mono();
+        mono.resize(mono.size() + size_t(std::max(0.0f, testGapSeconds) * sampleRate_), 0.0f);   // silence between repeats (exercises the gate)
+        const float noiseAmp = testNoiseDb > -99.0f ? std::pow(10.0f, testNoiseDb / 20.0f) * 1.7320508f : 0.0f; // uniform noise with that RMS
+        conditioner.reset(sampleRate_); deviceLatencyMs_ = 0.0f; overruns_ = 0; lastCallbackTime_ = 0.0;
         fakeRun_ = true; running_ = true;
-        fakeThread_.reset(new std::thread([this, mono]() {
-            const size_t block = 256; size_t pos = 0;
+        fakeThread_.reset(new std::thread([this, mono, noiseAmp]() {
+            const size_t block = size_t(std::clamp(latency.blockFrames, 64, 1024)); size_t pos = 0; uint32_t rng = 12345u;
             auto next = std::chrono::steady_clock::now();
             std::vector<float> buf(block);
             while (fakeRun_) {
-                for (size_t i = 0; i < block; ++i) { buf[i] = mono[pos]; pos = (pos + 1) % mono.size(); }
+                for (size_t i = 0; i < block; ++i) { rng = rng * 1664525u + 1013904223u; float nz = (float(rng >> 8) / 16777216.0f - 0.5f) * 2.0f * noiseAmp; buf[i] = mono[pos] + nz; pos = (pos + 1) % mono.size(); }
                 pushSamples(buf.data(), block, 1);
                 next += std::chrono::microseconds(int64_t(1e6 * double(block) / sampleRate_));
                 std::this_thread::sleep_until(next);
@@ -107,18 +111,20 @@ bool LiveCapture::start(int deviceIndex, int sampleRate, std::string* error) {
     if (in.device == paNoDevice) { if (error) *error = "no default input device"; return false; }
     in.channelCount = 1;
     in.sampleFormat = paFloat32;
-    in.suggestedLatency = Pa_GetDeviceInfo(in.device)->defaultLowInputLatency;
+    in.suggestedLatency = latency.latencyPreset == 0 ? Pa_GetDeviceInfo(in.device)->defaultLowInputLatency : Pa_GetDeviceInfo(in.device)->defaultHighInputLatency;
     sampleRate_ = sampleRate;
+    conditioner.reset(sampleRate_); overruns_ = 0; lastCallbackTime_ = 0.0;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         ring_.assign(size_t(kRingSeconds * sampleRate_), 0.0f);
         writePos_ = 0; totalWritten_ = 0; lastAnalysed_ = 0; maxRms_ = 1e-3f;
     }
     PaStream* s = nullptr;
-    PaError e = Pa_OpenStream(&s, &in, nullptr, sampleRate_, 256, paClipOff, paCallback, this);
+    PaError e = Pa_OpenStream(&s, &in, nullptr, sampleRate_, static_cast<unsigned long>(std::clamp(latency.blockFrames, 64, 1024)), paClipOff, paCallback, this);
     if (e != paNoError) { if (error) *error = Pa_GetErrorText(e); return false; }
     e = Pa_StartStream(s);
     if (e != paNoError) { if (error) *error = Pa_GetErrorText(e); Pa_CloseStream(s); return false; }
+    if (const PaStreamInfo* si = Pa_GetStreamInfo(s)) deviceLatencyMs_ = float(si->inputLatency * 1000.0);
     stream_ = s; running_ = true;
     return true;
 #else
@@ -137,19 +143,42 @@ void LiveCapture::stop() {
 }
 
 void LiveCapture::pushSamples(const float* in, size_t frames, int channels) {
+    {   // callback cadence (measured, for the latency readout)
+        double now = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+        double prev = lastCallbackTime_.exchange(now);
+        if (prev > 0.0) { float ms = float((now - prev) * 1000.0); float cur = callbackIntervalMs_.load(); callbackIntervalMs_ = cur <= 0 ? ms : 0.9f * cur + 0.1f * ms; }
+    }
     std::lock_guard<std::mutex> lock(mutex_);
     if (ring_.empty()) return;
+    scratch_.resize(frames);
     float peak = 0.0f;
     for (size_t i = 0; i < frames; ++i) {
         float s = 0.0f;
         for (int c = 0; c < channels; ++c) s += in[i * channels + c];
         s /= float(channels);
         peak = std::max(peak, std::abs(s));
-        ring_[writePos_] = s;
-        writePos_ = (writePos_ + 1) % ring_.size();
+        scratch_[i] = s;
     }
+    lastSpeech_ = conditioner.process(scratch_.data(), frames);
+    { std::lock_guard<std::mutex> sl(statusMutex_); micStatus_ = conditioner.status(); }
+    for (size_t i = 0; i < frames; ++i) { ring_[writePos_] = scratch_[i]; writePos_ = (writePos_ + 1) % ring_.size(); }
     totalWritten_ += frames;
     level_ = 0.8f * level_.load() + 0.2f * peak;
+}
+
+MicStatus LiveCapture::micStatus() const { std::lock_guard<std::mutex> sl(statusMutex_); return micStatus_; }
+
+LiveCapture::LatencyReport LiveCapture::latencyReport() const {
+    LatencyReport r; const float sr = float(std::max(1, sampleRate_));
+    r.deviceMs = deviceLatencyMs_;
+    r.blockMs = 1000.0f * float(std::clamp(latency.blockFrames, 64, 1024)) / sr;
+    r.windowMs = 1000.0f * 0.5f * float(featureConfig.frameSize) / sr;   // features are centred in the window
+    r.hopMs = 1000.0f * float(featureConfig.hopSize) / sr;
+    // exponential smoothing 'a' per poll (hop): time constant = -hop / ln(a)
+    r.smoothingMs = latency.smoothing > 0.0f && latency.smoothing < 1.0f ? -r.hopMs / std::log(latency.smoothing) : 0.0f;
+    r.estimatedMs = r.deviceMs + r.blockMs + r.windowMs + r.hopMs + r.smoothingMs;
+    r.measuredAgeMs = measuredAgeMs_; r.callbackIntervalMs = callbackIntervalMs_.load(); r.overruns = overruns_.load();
+    return r;
 }
 
 std::vector<float> LiveCapture::recent(double seconds) const {
@@ -167,6 +196,10 @@ LiveCapture::LiveFrame LiveCapture::poll() {
     if (!running_ || total == lastAnalysed_ || total < uint64_t(featureConfig.frameSize)) return lf;
     if (total - lastAnalysed_ < uint64_t(featureConfig.hopSize)) return lf;
     lastAnalysed_ = total;
+    {   // measured ring age: how long ago the newest sample was captured (callback cadence granularity)
+        double now = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+        double lc = lastCallbackTime_.load(); if (lc > 0.0) measuredAgeMs_ = float((now - lc) * 1000.0);
+    }
     // Analyse a short rolling window (last ~10 hops) so the mapper's own temporal smoothing and
     // pitch/voicing context behave as in offline mode; the newest frame is the live result.
     const int hopsInWindow = 10;
@@ -186,7 +219,10 @@ LiveCapture::LiveFrame LiveCapture::poll() {
     lf.features.time = float(double(total) / sampleRate_);
     lf.viseme = vis.empty() ? VisemeFrame{} : vis.back();
     // light smoothing across polls
-    for (size_t i = 0; i < smooth_.size(); ++i) { smooth_[i] = 0.5f * smooth_[i] + 0.5f * lf.viseme.weights[i]; lf.viseme.weights[i] = smooth_[i]; }
+    const float a = std::clamp(latency.smoothing, 0.0f, 0.95f);
+    for (size_t i = 0; i < smooth_.size(); ++i) { smooth_[i] = a * smooth_[i] + (1.0f - a) * lf.viseme.weights[i]; lf.viseme.weights[i] = smooth_[i]; }
+    // Gate closed -> force silence (the ring already holds muted samples, this just skips the decay tail)
+    if (conditioner.settings.gate && !micStatus().speech && conditioner.settings.gateFloorGain <= 0.0f) { for (auto& w : lf.viseme.weights) w *= 0.7f; lf.viseme.weights[0] = std::max(lf.viseme.weights[0], 1.0f - 0.7f * (1.0f - lf.viseme.weights[0])); }
     lf.valid = true;
     return lf;
 }

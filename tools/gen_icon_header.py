@@ -2,7 +2,7 @@
 """Generates src/ui/icons_material.h from third_party/material-icons/_data/codepoints.json:
 one UTF-8 string constant per icon we use (ICON_MD_<NAME>) plus the font range."""
 import json, sys
-ICONS = ["face", "compare", "person", "accessibility_new", "straighten", "record_voice_over", "movie", "check_circle", "check",
+ICONS = ["face", "compare", "timer", "person", "accessibility_new", "straighten", "record_voice_over", "movie", "check_circle", "check",
          "mic", "mic_off", "graphic_eq", "play_arrow", "pause", "stop", "skip_previous", "skip_next", "loop", "folder_open", "file_download", "save", "ios_share",
          "3d_rotation", "add_location_alt", "open_with", "grid_on", "visibility", "visibility_off", "label", "label_off",
          "center_focus_strong", "flip", "rotate_left", "rotate_right", "swap_vert", "auto_fix_high", "autorenew",

@@ -43,6 +43,7 @@ struct UiState {
     // export
     bool showExportDialog = false, showImportClip = false, showVideoDialog = false; int showProjectDialog = 0; // 1 open, 2 save
     char videoBuf[512] = "out/turntable.mp4"; int videoPreset = 1; char refBuf[512] = "";
+    bool micTabShown = false;
     int rigTabRequest = -1;
     // bake / correctives
     char bakeName[64] = "Custom"; bool bakeResidual = true, bakeSplit = false; int corrA = 0, corrB = 0;
@@ -633,7 +634,8 @@ void pageLipSync(Application& app) {
             } else ImGui::TextColored(kTextDim, "No audio loaded.");
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Microphone")) {
+        if (ImGui::BeginTabItem("Microphone", nullptr, app.liveEnabled && !ui.micTabShown ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None)) {
+            ui.micTabShown = true;
             if (!ui.devsListed || WideButton("Refresh devices", ImVec2(-1, 26 * S()))) { ui.devs = LiveCapture::listInputDevices(&ui.devErr); ui.devsListed = true; }
             ImGui::TextColored(kTextDim, "%s", LiveCapture::backendInfo().c_str());
             std::string cur = ui.devSel < 0 ? "(default input)" : ui.devs[std::min<size_t>(size_t(ui.devSel), ui.devs.size() - 1)].name;
@@ -651,6 +653,47 @@ void pageLipSync(Application& app) {
                 if (!app.liveWave.empty()) ImGui::PlotLines("##livewave", app.liveWave.data(), int(app.liveWave.size()), 0, nullptr, -1.0f, 1.0f, ImVec2(-1, 54 * S()));
                 ImGui::TextColored(kAccent, "Viseme  %s", visemeName(app.liveViseme.dominant()));
                 for (size_t i = 0; i < app.liveViseme.weights.size(); ++i) { ImGui::ProgressBar(app.liveViseme.weights[i], ImVec2(110 * S(), 8 * S()), ""); ImGui::SameLine(); ImGui::TextColored(kTextDim, "%s", visemeName(Viseme(i))); }
+            }
+            // --- microphone conditioning + latency
+            {
+                MicSettings& ms = app.live.conditioner.settings;
+                SectionLabel("Noise gate / AGC :");
+                if (app.liveEnabled) {
+                    MicStatus st = app.live.micStatus();
+                    ImGui::TextColored(st.speech ? kAccent : kTextDim, "%s  %s", st.speech ? ICON_MD_RECORD_VOICE_OVER : ICON_MD_MIC, st.speech ? "speech" : "silence / noise");
+                    ImGui::SameLine(); ImGui::TextColored(kTextDim, " in %.0f dB  floor %.0f dB  SNR %.0f dB  agc %+.0f dB", st.inputRmsDb, st.noiseFloorDb, st.snrDb, st.agcGainDb);
+                    // level bar with the floor and threshold marked
+                    ImVec2 p0 = ImGui::GetCursorScreenPos(); float w = ImGui::GetContentRegionAvail().x, h = 10 * S();
+                    auto x = [&](float db) { return p0.x + std::clamp((db + 70.0f) / 70.0f, 0.0f, 1.0f) * w; };
+                    ImDrawList* dl = ImGui::GetWindowDrawList();
+                    dl->AddRectFilled(p0, ImVec2(p0.x + w, p0.y + h), IM_COL32(40, 40, 40, 255), 2);
+                    dl->AddRectFilled(p0, ImVec2(x(st.inputRmsDb), p0.y + h), st.speech ? IM_COL32(150, 200, 60, 255) : IM_COL32(120, 120, 120, 255), 2);
+                    dl->AddLine(ImVec2(x(st.noiseFloorDb), p0.y), ImVec2(x(st.noiseFloorDb), p0.y + h), IM_COL32(255, 120, 60, 255), 2.0f);
+                    dl->AddLine(ImVec2(x(st.noiseFloorDb + ms.gateThresholdDb), p0.y), ImVec2(x(st.noiseFloorDb + ms.gateThresholdDb), p0.y + h), IM_COL32(255, 230, 80, 255), 2.0f);
+                    ImGui::Dummy(ImVec2(w, h + 2 * S()));
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Input level (-70..0 dBFS). Orange = tracked noise floor, yellow = gate threshold.");
+                }
+                ImGui::Checkbox("Gate", &ms.gate); ImGui::SameLine(); ImGui::Checkbox("AGC", &ms.agc); ImGui::SameLine(); ImGui::Checkbox("High-pass 80 Hz", &ms.highPass);
+                ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##gthr", &ms.gateThresholdDb, 2.0f, 24.0f, "Gate threshold  %.0f dB over floor");
+                ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##ghang", &ms.gateHangMs, 0.0f, 600.0f, "Gate hang  %.0f ms");
+                ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##agct", &ms.agcTargetDb, -30.0f, -6.0f, "AGC target  %.0f dBFS");
+                SectionLabel("Latency :");
+                auto& lt = app.live.latency;
+                static const char* blocks[] = {"64", "128", "256", "512", "1024"}; static const int blockV[] = {64, 128, 256, 512, 1024};
+                int bi = 2; for (int i = 0; i < 5; ++i) if (blockV[i] == lt.blockFrames) bi = i;
+                ImGui::SetNextItemWidth(120 * S()); if (ImGui::Combo("Block", &bi, blocks, 5)) lt.blockFrames = blockV[bi];
+                ImGui::SameLine(); ImGui::SetNextItemWidth(130 * S()); ImGui::Combo("Device", &lt.latencyPreset, "low latency\0safe (high)\0");
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Block / device latency are applied when capture is (re)started.");
+                ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##vsm", &lt.smoothing, 0.0f, 0.9f, "Viseme smoothing  %.2f");
+                ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##tnz", &app.live.testNoiseDb, -100.0f, -20.0f, "Test-signal noise  %.0f dBFS");
+                if (app.liveEnabled) {
+                    auto r = app.live.latencyReport();
+                    ImGui::TextColored(r.estimatedMs < 80 ? kAccent : r.estimatedMs < 150 ? kWarn : kError, ICON_MD_TIMER "  ~%.0f ms glass-to-mouth", r.estimatedMs);
+                    ImGui::TextColored(kTextDim, "device %.0f + block %.0f + window %.0f + hop %.0f + smoothing %.0f ms", r.deviceMs, r.blockMs, r.windowMs, r.hopMs, r.smoothingMs);
+                    ImGui::TextColored(kTextDim, "measured: callback every %.1f ms, newest sample %.0f ms old, %d overruns", r.callbackIntervalMs, r.measuredAgeMs, r.overruns);
+                    if (r.overruns > 0) ImGui::TextColored(kWarn, "Overruns: choose a bigger block or the safe device latency.");
+                    if (WideButton("Apply & restart capture", ImVec2(-1, 26 * S()))) { int dev = ui.devSel < 0 ? -1 : ui.devs[size_t(ui.devSel)].index; app.toggleLive(dev); app.toggleLive(dev); }
+                }
             }
             ImGui::EndTabItem();
         }

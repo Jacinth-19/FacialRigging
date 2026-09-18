@@ -29,6 +29,8 @@ int main(int argc, char** argv) {
         else if (a == "--model-pt") o.modelPt = next();
         else if (a == "--up") o.upAxis = next();
         else if (a == "--live") o.live = true;
+        else if (a == "--live-device") o.liveDevice = std::stoi(next());
+        else if (a == "--live-noise") o.liveTestNoiseDb = std::stof(next());
         else if (a == "--ui-scale") o.uiScale = std::stof(next());
         else if (a == "--step") o.startStep = std::stoi(next());
         else if (a == "--rig-tab") o.rigTab = std::stoi(next());

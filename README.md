@@ -136,6 +136,19 @@ model runs in every build; `FR_WITH_TORCH` additionally allows TorchScript `.pt`
   extra blink at pause onsets, occasional double blinks) plus breathing (`src/anim/idle_motion.*`).
 - **Tongue.** ICT-style heads with a tongue part get a `Tongue` bone under `Jaw`; `L/T/D/N/TH` phones raise it.
 
+### Microphone conditioning and latency
+
+`src/audio/mic_conditioner.cpp` runs on the audio thread in front of the live ring buffer: 80 Hz
+high-pass, a min-statistics **noise-floor tracker**, energy **VAD** with hysteresis and hang time that
+drives a soft **noise gate** (no mouth flutter on room noise / keyboard), and an **AGC** that only adapts
+while speech is detected (quiet talkers come up, shouting is tamed, silence is never pumped). The
+Microphone tab shows a level bar with the tracked floor and gate threshold, the VAD state and SNR, and a
+**latency budget**: device + block + analysis window + hop + smoothing = estimated glass-to-mouth ms, next
+to measured callback cadence, newest-sample age and overrun count. Block size (64–1024), device latency
+class and viseme smoothing are adjustable and applied on *Apply & restart capture*. The built-in test
+signal now has silent gaps and an injectable noise floor (`--live --live-device -2 --live-noise -45`)
+so the gate can be exercised without a microphone.
+
 ### Automatic landmarking (dlib)
 
 Rig landmarks (mouth, mouth corners, brows, eyelids, chin) are no longer bounding-box proportions:

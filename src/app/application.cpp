@@ -79,7 +79,7 @@ int Application::run() {
         for (auto& l : pipe.log) std::printf("[fr] %s\n", l.c_str());
         if (opts_.renderFrames <= 0) glfwSetWindowShouldClose(window_, 1);
     }
-    if (opts_.live) toggleLive();
+    if (opts_.live) { live.testNoiseDb = opts_.liveTestNoiseDb; toggleLive(opts_.liveDevice); }
     if (!opts_.referencePath.empty()) loadReference(opts_.referencePath);
     if (opts_.startStep >= 0) setStep(opts_.startStep);
     if (opts_.rigTab >= 0) setRigTab(opts_.rigTab);

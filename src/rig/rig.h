@@ -128,6 +128,10 @@ public:
     static constexpr const char* kJawBone = "Jaw";
     static constexpr const char* kEyeLBone = "EyeL";
     static constexpr const char* kEyeRBone = "EyeR";
+    static constexpr const char* kTongueBone = "Tongue";   ///< child of Jaw, pivot at the tongue root (when a Tongue part exists)
+    bool hasTongueBone() const { return skeleton.find(kTongueBone) >= 0; }
+    /// Tongue pose helper: up = tip raised toward the palate (L/N/T/D), out = protrusion (TH), each 0..1.
+    void setTongue(float up, float out);
     /// Gaze: rotates both eye bones so the eyeballs look toward `target` (mesh space). No-op
     /// without eye bones (single-surface heads).
     void lookAt(const glm::vec3& target);

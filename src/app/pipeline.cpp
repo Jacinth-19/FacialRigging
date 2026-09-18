@@ -152,7 +152,21 @@ bool Pipeline::generateAnimation() {
     features = fx.extract(audio);
     auto visemes = mapper->map(features);
     LipSyncGenerator gen(lipSync);
-    clip = gen.generate(features, visemes, rig);
+    lastAlignment = AlignmentResult{};
+    if (!transcript.empty()) {
+        PhonemeAligner aligner(alignment);
+        lastAlignment = aligner.align(transcript, features, visemes);
+        if (lastAlignment.phones.empty()) { note("Transcript alignment failed (no phones) - falling back to acoustic visemes"); lastSegments = segmentVisemes(visemes, features.frameInterval(), lipSync.coarticulation.minSegmentSec); }
+        else {
+            lastSegments = lastAlignment.segments;
+            char b[160]; std::snprintf(b, sizeof b, "Aligned transcript: %zu words, %zu phones, mean log-post %.2f, speech coverage %.0f%%", lastAlignment.words.size(), lastAlignment.phones.size(), lastAlignment.meanLogPosterior, lastAlignment.coverage * 100.0f);
+            note(b);
+        }
+        clip = gen.generate(features, lastSegments, visemes, rig);
+    } else {
+        lastSegments = segmentVisemes(visemes, features.frameInterval(), lipSync.coarticulation.minSegmentSec);
+        clip = gen.generate(features, visemes, rig);
+    }
     int onsets = 0; for (auto& f : features.frames) onsets += f.onset;
     note("Generated clip: " + std::to_string(clip.frameCount()) + " frames @ " + std::to_string(int(clip.frameRate)) + " fps, " + std::to_string(features.frames.size()) + " audio frames, " + std::to_string(onsets) + " onsets");
     return true;

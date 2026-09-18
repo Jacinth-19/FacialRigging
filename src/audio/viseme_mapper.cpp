@@ -11,16 +11,17 @@ const char* visemeName(Viseme v) {
 }
 
 const VisemePose& visemePose(Viseme v) {
+    //                 jaw   smile pucker wide  press funnel tUp  tOut
     static const VisemePose poses[] = {
-        /* Silence */ {0.00f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
-        /* AA      */ {0.90f, 0.0f, 0.0f, 0.2f, 0.0f, 0.0f},
-        /* EE      */ {0.30f, 0.4f, 0.0f, 0.8f, 0.0f, 0.0f},
-        /* IH      */ {0.40f, 0.2f, 0.0f, 0.4f, 0.0f, 0.0f},
-        /* OH      */ {0.55f, 0.0f, 0.4f, 0.0f, 0.0f, 0.6f},
-        /* UW      */ {0.25f, 0.0f, 0.9f, 0.0f, 0.0f, 0.5f},
-        /* MBP     */ {0.00f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f},
-        /* FV      */ {0.10f, 0.0f, 0.0f, 0.2f, 0.6f, 0.0f},
-        /* L_TH    */ {0.35f, 0.0f, 0.0f, 0.3f, 0.0f, 0.1f},
+        /* Silence */ {0.00f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
+        /* AA      */ {0.90f, 0.0f, 0.0f, 0.2f, 0.0f, 0.0f, 0.0f, 0.0f},
+        /* EE      */ {0.30f, 0.4f, 0.0f, 0.8f, 0.0f, 0.0f, 0.2f, 0.0f},
+        /* IH      */ {0.40f, 0.2f, 0.0f, 0.4f, 0.0f, 0.0f, 0.1f, 0.0f},
+        /* OH      */ {0.55f, 0.0f, 0.4f, 0.0f, 0.0f, 0.6f, 0.0f, 0.0f},
+        /* UW      */ {0.25f, 0.0f, 0.9f, 0.0f, 0.0f, 0.5f, 0.0f, 0.0f},
+        /* MBP     */ {0.00f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f},
+        /* FV      */ {0.10f, 0.0f, 0.0f, 0.2f, 0.6f, 0.0f, 0.0f, 0.0f},
+        /* L_TH    */ {0.35f, 0.0f, 0.0f, 0.3f, 0.0f, 0.1f, 1.0f, 0.5f},
     };
     int i = std::clamp(int(v), 0, int(Viseme::Count) - 1);
     return poses[i];
@@ -77,6 +78,50 @@ std::vector<VisemeFrame> VisemeMapper::map(const FeatureTrack& track) const {
         out.push_back(vf);
     }
     return out;
+}
+
+const VisemeDominance& visemeDominance(Viseme v) {
+    //                                 mag   onset  offset (s)
+    // Magnitudes are relative (only ratios matter). Consonants with a hard articulatory target
+    // (lip closure, lip-teeth contact) dominate by a wide margin so they win even when squeezed
+    // between long vowels; rounding (UW/OH) is strong and slow so it anticipates; lax vowels
+    // are weak and easily coloured by their neighbours.
+    static const VisemeDominance d[] = {
+        /* Silence */ {0.50f, 0.12f, 0.12f},
+        /* AA      */ {1.00f, 0.09f, 0.11f},
+        /* EE      */ {0.90f, 0.08f, 0.10f},
+        /* IH      */ {0.60f, 0.07f, 0.09f},
+        /* OH      */ {1.30f, 0.10f, 0.12f},
+        /* UW      */ {1.60f, 0.10f, 0.12f},   // rounding anticipates strongly
+        /* MBP     */ {4.00f, 0.04f, 0.05f},   // lips must close: strong, sharp
+        /* FV      */ {3.00f, 0.05f, 0.06f},
+        /* L_TH    */ {1.20f, 0.05f, 0.07f},
+    };
+    return d[std::clamp(int(v), 0, int(Viseme::Count) - 1)];
+}
+
+std::vector<VisemeSegment> segmentVisemes(const std::vector<VisemeFrame>& frames, double frameInterval, double minDurationSec) {
+    std::vector<VisemeSegment> segs;
+    for (size_t i = 0; i < frames.size(); ++i) {
+        Viseme v = frames[i].dominant();
+        double t0 = frameInterval > 0 ? i * frameInterval : frames[i].time;
+        if (!segs.empty() && segs.back().viseme == v) { segs.back().end = t0 + frameInterval; segs.back().confidence = std::max(segs.back().confidence, frames[i].weights[size_t(v)]); }
+        else segs.push_back({v, t0, t0 + frameInterval, frames[i].weights[size_t(v)]});
+    }
+    // absorb flickers shorter than minDuration into the longer neighbour
+    bool changed = true;
+    while (changed && segs.size() > 1) {
+        changed = false;
+        for (size_t i = 0; i < segs.size(); ++i) {
+            if (segs[i].end - segs[i].start >= minDurationSec) continue;
+            size_t into = (i == 0) ? 1 : (i + 1 == segs.size() ? i - 1 : ((segs[i - 1].end - segs[i - 1].start) >= (segs[i + 1].end - segs[i + 1].start) ? i - 1 : i + 1));
+            if (into < i) segs[into].end = segs[i].end; else segs[into].start = segs[i].start;
+            segs.erase(segs.begin() + long(i)); changed = true; break;
+        }
+        // merge equal neighbours produced by the absorption
+        for (size_t i = 0; i + 1 < segs.size(); ++i) if (segs[i].viseme == segs[i + 1].viseme) { segs[i].end = segs[i + 1].end; segs.erase(segs.begin() + long(i) + 1); changed = true; break; }
+    }
+    return segs;
 }
 
 Viseme phonemeToViseme(const std::string& phIn) {

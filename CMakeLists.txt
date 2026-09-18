@@ -60,6 +60,10 @@ add_library(fr_core STATIC
   src/anim/lipsync_generator.cpp
   src/export/gltf_exporter.cpp
   src/export/json_clip_exporter.cpp
+  src/anim/coarticulation.cpp
+  src/anim/idle_motion.cpp
+  src/audio/g2p.cpp
+  src/audio/phoneme_aligner.cpp
   src/export/exporter_factory.cpp
   src/app/pipeline.cpp
 )
@@ -291,7 +295,8 @@ if(FR_BUILD_TESTS)
     tests/test_anim_export.cpp
     tests/test_ml_live.cpp
     tests/test_parts.cpp
-    tests/test_features.cpp)
+    tests/test_features.cpp
+    tests/test_speech_model.cpp)
   target_link_libraries(fr_tests PRIVATE fr_core Catch2::Catch2WithMain fr_warnings)
   target_compile_definitions(fr_tests PRIVATE FR_ASSET_DIR="${CMAKE_SOURCE_DIR}/assets")
 endif()

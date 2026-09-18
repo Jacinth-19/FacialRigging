@@ -119,7 +119,8 @@ int Rig::mirrorPartner(int i) const {
     auto swapSuffix = [](std::string n) -> std::string {
         if (n.size() < 2) return "";
         char last = n.back(); std::string base = n.substr(0, n.size() - 1);
-        if (last == 'L') return base + "R"; if (last == 'R') return base + "L";
+        if (last == 'L') return base + "R";
+        if (last == 'R') return base + "L";
         if (n.size() > 2 && n.compare(n.size() - 2, 2, "_L") == 0) return n.substr(0, n.size() - 2) + "_R";
         if (n.size() > 2 && n.compare(n.size() - 2, 2, "_R") == 0) return n.substr(0, n.size() - 2) + "_L";
         return "";
@@ -283,6 +284,21 @@ void Rig::buildDefaultFaceRig() {
         };
         addEye(kEyeLBone, parts.eyeL); addEye(kEyeRBone, parts.eyeR);
     } else { hard(parts.eyeL, 0); hard(parts.eyeR, 0); }
+    // Tongue bone: child of the jaw, pivot at the tongue root (back of the part). Weight ramps
+    // from root (jaw) to tip (tongue) so the tip can lift / protrude while the root stays put.
+    if (parts.tongue >= 0) {
+        glm::vec3 tlo, thi; mesh.partBounds(parts.tongue, tlo, thi);
+        Bone tg; tg.name = kTongueBone; tg.parent = 1;
+        glm::vec3 root(0.5f * (tlo.x + thi.x), 0.5f * (tlo.y + thi.y), tlo.z + 0.15f * (thi.z - tlo.z));
+        tg.bindTranslation = root - (skeleton.bones[0].bindTranslation + skeleton.bones[1].bindTranslation);
+        skeleton.bones.push_back(tg);
+        const int tb = int(skeleton.bones.size()) - 1;
+        const float len = std::max(thi.z - tlo.z, 1e-5f);
+        for (uint32_t v : mesh.partVertices(parts.tongue)) {
+            float w = smoothstep(0.1f, 0.6f, (mesh.positions[v].z - tlo.z) / len);
+            skin[v] = VertexInfluence{}; skin[v].add(tb, w); skin[v].add(1, 1.0f - w); skin[v].normalize(); rigid[v] = 1;
+        }
+    }
     if (parts.any()) {
         // With a real inner mouth the jaw pivot sits at the condyle: level with the ear canal,
         // roughly at the back third of the head.
@@ -391,6 +407,16 @@ void Rig::buildDefaultFaceRig() {
 void Rig::setGaze(float yawDeg, float pitchDeg) {
     glm::quat q = glm::angleAxis(glm::radians(yawDeg), glm::vec3(0, 1, 0)) * glm::angleAxis(glm::radians(-pitchDeg), glm::vec3(1, 0, 0));
     for (const char* n : {kEyeLBone, kEyeRBone}) { int b = skeleton.find(n); if (b >= 0) skeleton.bones[size_t(b)].poseRotation = q; }
+}
+
+void Rig::setTongue(float up, float out) {
+    int b = skeleton.find(kTongueBone); if (b < 0) return;
+    up = std::clamp(up, 0.0f, 1.0f); out = std::clamp(out, 0.0f, 1.0f);
+    Bone& t = skeleton.bones[size_t(b)];
+    // Tip lift = negative pitch about the root (front is +z, so rotating about +x lowers the tip).
+    t.poseRotation = glm::angleAxis(glm::radians(-28.0f * up), glm::vec3(1, 0, 0));
+    const float H = mesh.boundsMax().y - mesh.boundsMin().y;
+    t.poseTranslation = glm::vec3(0.0f, 0.0f, 0.045f * H * out);
 }
 
 void Rig::lookAt(const glm::vec3& target) {

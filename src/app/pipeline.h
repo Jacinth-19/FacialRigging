@@ -1,5 +1,6 @@
 #pragma once
 #include "anim/animation_clip.h"
+#include "audio/phoneme_aligner.h"
 #include "anim/lipsync_generator.h"
 #include "audio/features.h"
 #include "audio/wav_io.h"
@@ -32,6 +33,13 @@ public:
     AnimationClip clip;
     LipSyncSettings lipSync;
     std::vector<std::string> log;
+    /// Optional transcript of the audio. When non-empty, generateAnimation() force-aligns its
+    /// phonemes to the audio (PhonemeAligner) and drives the mouth from the aligned viseme
+    /// segments instead of per-frame classification.
+    std::string transcript;
+    AlignmentSettings alignment;
+    AlignmentResult lastAlignment;                 ///< filled by generateAnimation() when a transcript was used
+    std::vector<VisemeSegment> lastSegments;       ///< viseme segments actually used for the mouth (aligned or collapsed)
 
     enum class MapperKind { RuleBased, Ml };
     MapperKind mapperKind = MapperKind::RuleBased;

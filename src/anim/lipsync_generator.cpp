@@ -40,6 +40,15 @@ AnimationClip LipSyncGenerator::generate(const AudioBuffer& audio, const Rig& ri
 }
 
 AnimationClip LipSyncGenerator::generate(const FeatureTrack& features, const std::vector<VisemeFrame>& visemes, const Rig& rig) const {
+    std::vector<VisemeSegment> segs;
+    if (settings.coarticulation.enabled) segs = segmentVisemes(visemes, features.frameInterval(), settings.coarticulation.minSegmentSec);
+    return generate(features, segs, visemes, rig);
+}
+
+AnimationClip LipSyncGenerator::generate(const FeatureTrack& features, const std::vector<VisemeSegment>& segments, const std::vector<VisemeFrame>& visemes, const Rig& rig) const {
+    Coarticulator coart(settings.coarticulation);
+    coart.setSegments(segments);
+    const bool useCoart = !segments.empty();
     AnimationClip clip;
     clip.name = "LipSync";
     clip.frameRate = settings.frameRate;
@@ -82,23 +91,43 @@ AnimationClip LipSyncGenerator::generate(const FeatureTrack& features, const std
     float nextSaccade = 0.6f, gazeYaw = 0.0f, gazePitch = 0.0f, curYaw = 0.0f, curPitch = 0.0f;
     // Smoothed loudness envelope drives nods (slow) and emphasis (onset).
     float loudEnv = 0.0f, nod = 0.0f, nodVel = 0.0f;
+    const int tongueBone = rig.skeleton.find(Rig::kTongueBone);
+    Curve<glm::quat> tongueRot; tongueRot.target = Rig::kTongueBone; Curve<glm::vec3> tongueTr; tongueTr.target = Rig::kTongueBone;
+    const float H = rig.mesh.boundsMax().y - rig.mesh.boundsMin().y;
+    // --- idle layer (blinks / breathing) is baked first because the gaze pass needs the blink
+    // moments and the blink pass needs the gaze - we do gaze in a pre-pass here.
+    std::vector<float> gazePitchTrack(size_t(frames), 0.0f); std::vector<int> saccadeFrames;
+    {
+        float ns = 0.6f, gy = 0, gp = 0, cy = 0, cp = 0;
+        for (int i = 0; i < frames; ++i) {
+            float t = i * dt;
+            if (eyeL >= 0 && eyeR >= 0 && settings.gazeMotion > 0.0f) {
+                if (t >= ns) { gy = 14.0f * nGaze.at(t * 10.0f); gp = 8.0f * nGazeY.at(t * 10.0f); ns = t + 0.8f + 1.7f * (0.5f + 0.5f * nGaze.at(t * 3.0f + 7.0f)); saccadeFrames.push_back(i); }
+                float k = std::min(1.0f, 25.0f * dt); cy += (gy - cy) * k; cp += (gp - cp) * k;
+                gazePitchTrack[size_t(i)] = glm::radians(settings.gazeMotion * cp);
+            }
+        }
+    }
+    IdleMotionSettings idleS = settings.idle; if (settings.blinkIntervalSec <= 0.0f) idleS.blinkRate = 0.0f; idleS.seed = settings.seed * 11 + 3;
+    const std::vector<IdleSample> idle = IdleMotionModel(idleS).bake(features, dt, &gazePitchTrack, &saccadeFrames);
 
     for (int i = 0; i < frames; ++i) {
         float t = i * dt;
         const AudioFrameFeatures* f = features.at(t);
         const VisemeFrame* v = visemeAt(t);
         float loud = f ? f->loudness : 0.0f;
-        MouthPose pose = mouthPose(v ? *v : VisemeFrame{}, loud);
+        MouthPose pose = useCoart ? mouthPose(coart.poseAt(t), loud) : mouthPose(v ? *v : VisemeFrame{}, loud);
         float I = settings.intensity;
         float jawW = pose.jawOpen;
         float browW = 0.0f;
         if (f && medianPitch > 0 && f->pitchHz > 0 && f->voicing > 0.5f)
             browW = std::clamp(settings.browFromPitch * std::log2(f->pitchHz / medianPitch) * 2.0f, 0.0f, 1.0f);
-        float blinkW = 0.0f;
-        if (settings.blinkIntervalSec > 0) {
-            float phase = std::fmod(t + 0.9f, settings.blinkIntervalSec);
-            if (phase < settings.blinkDurationSec) blinkW = std::sin(float(M_PI) * phase / settings.blinkDurationSec);
-        }
+        const IdleSample& id = size_t(i) < idle.size() ? idle[size_t(i)] : IdleSample{};
+        float blinkW = std::clamp(id.blink, 0.0f, 1.0f);
+        // inhale before a phrase: lips part slightly, brows lift a touch
+        float inhale = id.inhaleCue * settings.idle.breathing;
+        pose.jawOpen = std::max(pose.jawOpen, 0.06f * inhale);
+        browW = std::max(browW, 0.08f * inhale);
         auto cl = [](float v) { return std::clamp(v, 0.0f, 1.0f); };
         if (jaw) jaw->addKey(t, cl(jawW * settings.jawShapeScale + emoAdd(emo ? emo->jaw : 0)));
         if (smile) smile->addKey(t, cl(pose.smile + emoAdd(emo ? emo->smile : 0)));
@@ -113,6 +142,11 @@ AnimationClip LipSyncGenerator::generate(const FeatureTrack& features, const std
         if (browDown) browDown->addKey(t, emoAdd(emo ? emo->browDown : 0));
         if (eyeWide) eyeWide->addKey(t, cl(emoAdd(emo ? emo->eyeWide : 0) - blinkW));
         if (jawBone >= 0) jawRot.addKey(t, glm::angleAxis(glm::radians(settings.jawBoneDegrees * jawW), glm::vec3(1, 0, 0)));
+        if (tongueBone >= 0 && settings.tongue > 0.0f) {
+            float up = std::clamp(pose.tongueUp * settings.tongue, 0.0f, 1.0f), outT = std::clamp(pose.tongueOut * settings.tongue, 0.0f, 1.0f);
+            tongueRot.addKey(t, glm::angleAxis(glm::radians(-28.0f * up), glm::vec3(1, 0, 0)));
+            tongueTr.addKey(t, glm::vec3(0.0f, 0.0f, 0.045f * H * outT));
+        }
         // --- head motion: slow sway + loudness-driven nod (critically damped spring on the envelope)
         if (headBone >= 0 && settings.headMotion > 0.0f) {
             loudEnv += (loud - loudEnv) * std::min(1.0f, 8.0f * dt);
@@ -120,7 +154,8 @@ AnimationClip LipSyncGenerator::generate(const FeatureTrack& features, const std
             float acc = 180.0f * (target - nod) - 22.0f * nodVel; nodVel += acc * dt; nod += nodVel * dt;
             float m = settings.headMotion;
             float yaw = glm::radians(3.5f * m) * nSway.at(t * 0.35f), roll = glm::radians(2.0f * m) * nSway.at(t * 0.5f + 100.0f);
-            float pitch = glm::radians(2.5f * m) * nNod.at(t * 0.6f + 50.0f) + glm::radians(3.0f * m) * nod;
+            float pitch = glm::radians(2.5f * m) * nNod.at(t * 0.6f + 50.0f) + glm::radians(3.0f * m) * nod
+                        - glm::radians(settings.breathingHeadDegrees) * 0.5f * (id.breath + 1.0f); // inhale lifts the head slightly
             headRot.addKey(t, glm::angleAxis(yaw, glm::vec3(0, 1, 0)) * glm::angleAxis(pitch, glm::vec3(1, 0, 0)) * glm::angleAxis(roll, glm::vec3(0, 0, 1)));
         }
         // --- gaze: saccade + hold, with slight drift; blinks are the natural moment for a saccade
@@ -128,7 +163,8 @@ AnimationClip LipSyncGenerator::generate(const FeatureTrack& features, const std
             if (t >= nextSaccade) { gazeYaw = 14.0f * nGaze.at(t * 10.0f); gazePitch = 8.0f * nGazeY.at(t * 10.0f); nextSaccade = t + 0.8f + 1.7f * (0.5f + 0.5f * nGaze.at(t * 3.0f + 7.0f)); }
             float k = std::min(1.0f, 25.0f * dt); curYaw += (gazeYaw - curYaw) * k; curPitch += (gazePitch - curPitch) * k; // ~40 ms saccade
             float g = settings.gazeMotion;
-            float yawR = glm::radians(g * (curYaw + 1.5f * nGaze.at(t * 0.8f + 30.0f))), pitchR = glm::radians(g * (curPitch + 1.0f * nGazeY.at(t * 0.7f + 31.0f)));
+            // eyes drift up under a closing lid (Bell's phenomenon) - subtle, 4 deg at full closure
+            float yawR = glm::radians(g * (curYaw + 1.5f * nGaze.at(t * 0.8f + 30.0f))), pitchR = glm::radians(g * (curPitch + 1.0f * nGazeY.at(t * 0.7f + 31.0f)) + 4.0f * blinkW);
             glm::quat q = glm::angleAxis(yawR, glm::vec3(0, 1, 0)) * glm::angleAxis(-pitchR, glm::vec3(1, 0, 0));
             eyeLRot.addKey(t, q); eyeRRot.addKey(t, q);
         }
@@ -138,7 +174,21 @@ AnimationClip LipSyncGenerator::generate(const FeatureTrack& features, const std
     if (jawBone >= 0) clip.boneRotations.push_back(jawRot);
     if (!headRot.empty()) clip.boneRotations.push_back(headRot);
     if (!eyeLRot.empty()) { clip.boneRotations.push_back(eyeLRot); clip.boneRotations.push_back(eyeRRot); }
-    clip.smoothBlendCurves(settings.smoothingRadiusFrames);
+    if (!tongueRot.empty()) { clip.boneRotations.push_back(tongueRot); clip.boneTranslations.push_back(tongueTr); }
+    if (useCoart) {
+        // Co-articulation already produced smooth mouth curves; only denoise the pitch-driven brows.
+        // Keep blinks crisp (a box filter would soften the closure).
+        std::vector<float> keepBlink; if (blink) keepBlink = blink->values;
+        std::vector<std::pair<std::string, std::vector<float>>> keepMouth;
+        for (const char* n : {shapes::JawOpen, shapes::MouthSmile, shapes::MouthPucker, shapes::MouthWide, shapes::LipsPress, shapes::MouthFunnel}) if (auto* c = clip.findBlendCurve(n)) keepMouth.push_back({n, c->values});
+        clip.smoothBlendCurves(settings.smoothingRadiusFrames);
+        for (auto& km : keepMouth) if (auto* c = clip.findBlendCurve(km.first)) c->values = km.second;
+        if (blink) blink->values = keepBlink;
+    } else {
+        std::vector<float> keepBlink; if (blink) keepBlink = blink->values;
+        clip.smoothBlendCurves(settings.smoothingRadiusFrames);
+        if (blink) blink->values = keepBlink;
+    }
     return clip;
 }
 
@@ -148,7 +198,12 @@ LipSyncGenerator::MouthPose LipSyncGenerator::mouthPose(const VisemeFrame& v, fl
         const VisemePose& p = visemePose(Viseme(k)); float w = v.weights[k];
         pose.jawOpen += w * p.jawOpen; pose.smile += w * p.smile; pose.pucker += w * p.pucker;
         pose.wide += w * p.wide; pose.lipsPress += w * p.lipsPress; pose.funnel += w * p.funnel;
+        pose.tongueUp += w * p.tongueUp; pose.tongueOut += w * p.tongueOut;
     }
+    return mouthPose(pose, loud);
+}
+
+LipSyncGenerator::MouthPose LipSyncGenerator::mouthPose(const VisemePose& pose, float loud) const {
     const float I = settings.intensity;
     MouthPose m;
     m.jawOpen = std::clamp((pose.jawOpen + settings.jawFromLoudness * loud) * I, 0.0f, 1.0f);
@@ -157,6 +212,9 @@ LipSyncGenerator::MouthPose LipSyncGenerator::mouthPose(const VisemeFrame& v, fl
     m.wide = std::clamp(pose.wide * I, 0.0f, 1.0f);
     m.lipsPress = std::clamp(pose.lipsPress * I, 0.0f, 1.0f);
     m.funnel = std::clamp(pose.funnel * I, 0.0f, 1.0f);
+    m.tongueUp = std::clamp(pose.tongueUp, 0.0f, 1.0f); m.tongueOut = std::clamp(pose.tongueOut, 0.0f, 1.0f);
+    // A closed mouth hides the tongue: scale tongue motion by how open the lips/jaw are.
+    float visible = std::clamp(m.jawOpen * 2.0f, 0.15f, 1.0f); m.tongueUp *= visible; m.tongueOut *= visible;
     return m;
 }
 
@@ -167,6 +225,7 @@ void LipSyncGenerator::applyVisemeToRig(const VisemeFrame& v, const AudioFrameFe
     rig.setBlendWeight(shapes::LipsPress, m.lipsPress); rig.setBlendWeight(shapes::MouthFunnel, m.funnel);
     int jaw = rig.skeleton.find("Jaw");
     if (jaw >= 0) rig.skeleton.bones[size_t(jaw)].poseRotation = glm::angleAxis(glm::radians(settings.jawBoneDegrees * m.jawOpen), glm::vec3(1, 0, 0));
+    rig.setTongue(m.tongueUp * settings.tongue, m.tongueOut * settings.tongue);
     rig.syncControlPointsFromRig();
 }
 

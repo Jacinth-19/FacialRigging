@@ -14,7 +14,7 @@ TEST_CASE("ICT head gets eye bones; look-at rotates only the eyeballs") {
     REQUIRE(p.loadModel(std::string(FR_ASSET_DIR) + "/models/ict_face/ict_face.obj", &err));
     p.buildDefaultRig();
     REQUIRE(p.rig.hasEyeBones());
-    REQUIRE(p.rig.skeleton.bones.size() == 4);
+    REQUIRE(p.rig.skeleton.bones.size() == 5); // Head, Jaw, EyeL, EyeR, Tongue
     int eL = p.rig.skeleton.find(Rig::kEyeLBone), eR = p.rig.skeleton.find(Rig::kEyeRBone);
     auto parts = p.rig.detectParts();
     for (uint32_t v : p.rig.mesh.partVertices(parts.eyeL)) CHECK(p.rig.skin[v].bones[0] == eL);

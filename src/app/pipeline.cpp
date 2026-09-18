@@ -123,11 +123,32 @@ void Pipeline::translateModel(const glm::vec3& d) {
     Mesh m = rig.mesh; rig.setMesh(m);
 }
 
+bool Pipeline::detectLandmarksNow() {
+    std::string why;
+    if (!landmarkerAvailable(&why)) { lastLandmarks = FaceLandmarks{}; lastLandmarks.note = why; note("Auto-landmarking unavailable: " + why); return false; }
+    lastLandmarks = detectLandmarks(rig.mesh);
+    if (lastLandmarks.found) {
+        // Sanity: the detected mouth must sit below the eyes and inside the bounds, else distrust it.
+        const glm::vec3 lo = rig.mesh.boundsMin(), hi = rig.mesh.boundsMax();
+        bool sane = lastLandmarks.mouth.y < lastLandmarks.eyeL.y && lastLandmarks.eyeL.x < lastLandmarks.eyeR.x && lastLandmarks.cornerL.x < lastLandmarks.cornerR.x
+                 && lastLandmarks.mouth.y > lo.y && lastLandmarks.browL.y < hi.y;
+        if (!sane) { lastLandmarks.found = false; lastLandmarks.note += " (rejected: implausible layout)"; }
+    }
+    note(std::string(lastLandmarks.found ? "Auto-landmarks: " : "Auto-landmarks failed: ") + lastLandmarks.note);
+    return lastLandmarks.found;
+}
+
 void Pipeline::buildDefaultRig() {
+    if (autoLandmarks != AutoLandmarks::Off && rig.mesh.vertexCount() > 0) {
+        std::string why;
+        if (autoLandmarks == AutoLandmarks::On || landmarkerAvailable(&why)) detectLandmarksNow();
+        else { lastLandmarks = FaceLandmarks{}; lastLandmarks.note = why; }
+    } else lastLandmarks = FaceLandmarks{};
+    const FaceLandmarks* lm = lastLandmarks.found ? &lastLandmarks : nullptr;
     if (importedSkeleton && importedSkin_.size() == rig.mesh.vertexCount()) {
         // Keep the character's own skeleton and weights; the default builder only contributes
         // control points and procedural fallbacks for canonical shapes the file doesn't have.
-        rig.buildDefaultFaceRig();
+        rig.buildDefaultFaceRig(lm);
         rig.skeleton = importedSkel_; rig.skin = importedSkin_;
         for (auto& cp : rig.controlPoints) if (cp.binding == BindingType::Bone) { int j = rig.skeleton.find(cp.target == 1 ? Rig::kJawBone : Rig::kHeadBone); if (j >= 0) cp.target = j; else cp.binding = BindingType::Unbound; }
         int jaw = rig.skeleton.find(Rig::kJawBone);
@@ -137,7 +158,7 @@ void Pipeline::buildDefaultRig() {
         if (!importedClips.empty() && clip.duration <= 0) { clip = importedClips[0]; note("Loaded imported animation '" + clip.name + "'"); }
         return;
     }
-    rig.buildDefaultFaceRig();
+    rig.buildDefaultFaceRig(lm);
     if (!authoredShapes_.empty()) {
         authoredCanonicalCoverage = rig.installAuthoredBlendShapes(authoredShapes_);
         // An authored jawOpen already drops the whole lower face; keep the bone for the inner

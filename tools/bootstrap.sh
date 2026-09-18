@@ -58,6 +58,13 @@ if [ "$WANT_TIMIT" = 1 ] && [ ! -d data/timit/TRAIN ]; then
   git -C data/.timit_tmp sparse-checkout set data
   mv data/.timit_tmp/data data/timit; rm -rf data/.timit_tmp
 fi
+if [ ! -f data/models/shape_predictor_68_face_landmarks.dat ]; then
+  log "fetching dlib 68-point shape predictor (99 MB) for auto-landmarking"
+  mkdir -p data/models; rm -rf data/.lm_tmp
+  if git clone -q --depth 1 https://github.com/italojs/facial-landmarks-recognition data/.lm_tmp 2>/dev/null; then
+    mv data/.lm_tmp/shape_predictor_68_face_landmarks.dat data/models/; rm -rf data/.lm_tmp
+  else log "  (download failed - auto-landmarking will fall back to proportional guesses)"; fi
+fi
 if [ "$WANT_TORCH" = 1 ] && [ ! -d third_party/libtorch/torch ]; then
   log "fetching LibTorch (torch 2.2.2 CPU wheel)"
   mkdir -p /tmp/fr_torch && pip download -q torch==2.2.2 --no-deps -d /tmp/fr_torch --index-url https://download.pytorch.org/whl/cpu

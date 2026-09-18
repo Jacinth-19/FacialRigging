@@ -55,7 +55,7 @@ Options:
 }
 
 int main(int argc, char** argv) {
-    std::string model, audioPath, output = "out/scene", format = "glb", saveAudio, saveModel, clipIn, project, saveProjectPath, liveLink; float liveSpeed = 1.0f;
+    std::string model, audioPath, output = "out/scene", format = "glb", saveAudio, saveModel, clipIn, project, saveProjectPath, liveLink, dumpLandmarks; float liveSpeed = 1.0f;
     std::vector<std::string> variationTexts;
     bool dump = false;
     Pipeline pipe;
@@ -106,6 +106,8 @@ int main(int argc, char** argv) {
         else if (a == "--gaze-motion") pipe.lipSync.gazeMotion = float(std::atof(next().c_str()));
         else if (a == "--clip-in") clipIn = next();
         else if (a == "--transcript") pipe.transcript = next();
+        else if (a == "--landmarks") { std::string v = next(); pipe.autoLandmarks = v == "off" ? Pipeline::AutoLandmarks::Off : v == "on" ? Pipeline::AutoLandmarks::On : Pipeline::AutoLandmarks::Auto; }
+        else if (a == "--dump-landmarks") dumpLandmarks = next();
         else if (a == "--save-audio") saveAudio = next();
         else if (a == "--project") project = next();
         else if (a == "--save-project") saveProjectPath = next();
@@ -126,6 +128,12 @@ int main(int argc, char** argv) {
     pipe.buildDefaultRig();
     }
     if (!saveModel.empty()) saveObj(saveModel, pipe.rig.mesh, &err);
+    if (!dumpLandmarks.empty()) {   // debug: front render with the 68 detected points as a PGM
+        FrontRender fr = renderFront(pipe.rig.mesh, 512);
+        const FaceLandmarks& L = pipe.rig.landmarks; std::vector<glm::vec2> marks = L.pixels68;
+        if (marks.empty()) for (const glm::vec3* p : {&L.mouth, &L.cornerL, &L.cornerR, &L.browL, &L.browR, &L.eyeL, &L.eyeR, &L.chin}) marks.push_back(fr.pixelOf(*p));
+        savePgm(fr, dumpLandmarks, &marks); std::printf("wrote %s (%s)\n", dumpLandmarks.c_str(), L.note.c_str());
+    }
     if (!project.empty()) {
     } else if (!clipIn.empty()) {
         std::vector<AnimationClip> clips;

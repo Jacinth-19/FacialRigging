@@ -59,6 +59,8 @@ public:
         std::string videoOut; float videoOrbit = 0.0f; int videoW = 1280, videoH = 720; float videoSeconds = -1.0f;   ///< --video out.mp4 [--orbit deg] [--video-size WxH] [--video-seconds s]
         bool keysDemo = false;            ///< seed a few key-layer keys on JawOpen + Head X and open the timeline in key mode (screenshots/tests)
         bool paintDemo = false;           ///< with paintBone: apply a scripted brush stroke across the cheek (headless demo/test)               ///< select the paint tool on this bone at start (screenshots / demos)
+        bool showLandmarks = false;
+        std::string landmarks = "auto";   ///< --landmarks auto|on|off (dlib auto-landmarking before rig build)
         std::string emotion;              ///< performance-layer emotion preset for generation
         float emotionAmount = 0.8f;
         std::string transcript;
@@ -87,7 +89,7 @@ public:
     int newPointShape = 0;
     float newPointRadius = 0.15f;
     int selectedPoint = -1;
-    bool showBones = true, showPoints = true, showLabels = true;
+    bool showBones = true, showPoints = true, showLabels = true, showLandmarks = false;
     // playback
     bool playing = false; float playTime = 0.0f; bool loop = true;
     // status

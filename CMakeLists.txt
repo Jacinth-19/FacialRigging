@@ -13,6 +13,7 @@ option(FR_BUILD_TESTS   "Build unit tests (Catch2)" ON)
 option(FR_WITH_FBX_SDK  "Link the Autodesk FBX SDK (set FBX_SDK_ROOT)" OFF)
 option(FR_WITH_ASSIMP   "Build the Assimp-based FBX exporter" ON)
 option(FR_WITH_PORTAUDIO "Build live microphone capture with PortAudio" ON)
+option(FR_WITH_DLIB     "Build dlib-based automatic face landmarking (front render -> 68 points -> rig landmarks)" ON)
 option(FR_WITH_TORCH    "Build the LibTorch ML viseme mapper (set Torch_DIR or TORCH_ROOT)" OFF)
 set(TORCH_ROOT "" CACHE PATH "Root of a LibTorch / torch python package (contains lib/ and include/)")
 
@@ -70,6 +71,7 @@ add_library(fr_core STATIC
   src/app/pipeline.cpp
   src/app/project.cpp
   src/anim/key_layer.cpp
+  src/rig/landmarks.cpp
 )
 target_include_directories(fr_core PUBLIC src)
 target_link_libraries(fr_core PUBLIC glm::glm PRIVATE fr_warnings)
@@ -186,6 +188,25 @@ ${_tail}")
   target_compile_definitions(fr_core PUBLIC FR_HAVE_PORTAUDIO=1)
 else()
   target_compile_definitions(fr_core PUBLIC FR_HAVE_PORTAUDIO=0)
+endif()
+
+if(FR_WITH_DLIB)
+  # dlib: HOG frontal face detector + 68-point shape predictor, used to place rig landmarks on a
+  # software front render of the mesh. Model file: data/models/shape_predictor_68_face_landmarks.dat
+  # (tools/bootstrap.sh fetches it; gitignored - 99 MB).
+  foreach(opt DLIB_NO_GUI_SUPPORT)
+    set(${opt} ON CACHE BOOL "" FORCE)
+  endforeach()
+  foreach(opt DLIB_JPEG_SUPPORT DLIB_PNG_SUPPORT DLIB_GIF_SUPPORT DLIB_WEBP_SUPPORT DLIB_JXL_SUPPORT DLIB_LINK_WITH_SQLITE3 DLIB_USE_BLAS DLIB_USE_LAPACK DLIB_USE_CUDA DLIB_USE_MKL_FFT DLIB_USE_FFMPEG DLIB_ENABLE_ASSERTS)
+    set(${opt} OFF CACHE BOOL "" FORCE)
+  endforeach()
+  add_subdirectory(third_party/dlib/dlib SYSTEM EXCLUDE_FROM_ALL)
+  target_link_libraries(fr_core PUBLIC dlib::dlib)
+  target_compile_definitions(fr_core PUBLIC FR_HAVE_DLIB=1)
+  target_compile_definitions(fr_core PRIVATE FR_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+else()
+  target_compile_definitions(fr_core PUBLIC FR_HAVE_DLIB=0)
+  target_compile_definitions(fr_core PRIVATE FR_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
 endif()
 
 if(FR_WITH_TORCH)
@@ -308,7 +329,8 @@ if(FR_BUILD_TESTS)
     tests/test_scene_import.cpp
     tests/test_arkit.cpp
     tests/test_project.cpp
-    tests/test_key_layer.cpp)
+    tests/test_key_layer.cpp
+  tests/test_landmarks.cpp)
   target_link_libraries(fr_tests PRIVATE fr_core Catch2::Catch2WithMain fr_warnings)
   target_compile_definitions(fr_tests PRIVATE FR_ASSET_DIR="${CMAKE_SOURCE_DIR}/assets")
 endif()

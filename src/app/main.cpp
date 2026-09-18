@@ -44,6 +44,8 @@ int main(int argc, char** argv) {
         else if (a == "--clean") o.clean = true;
         else if (a == "--keys-demo") { o.keysDemo = true; if (i + 1 < argc && argv[i + 1][0] != '-') o.keysDemoChannel = std::stoi(next()); }
         else if (a == "--emotion") o.emotion = next();
+        else if (a == "--landmarks") o.landmarks = next();
+        else if (a == "--show-landmarks") o.showLandmarks = true;
         else if (a == "--transcript") o.transcript = next();
         else if (a == "--emotion-amount") o.emotionAmount = std::stof(next());
         else if (a == "--head-motion") o.headMotion = std::stof(next());

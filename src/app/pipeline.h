@@ -65,6 +65,13 @@ private:
     std::vector<BlendShape> authoredShapes_;
     Skeleton importedSkel_; std::vector<VertexInfluence> importedSkin_;
 public: ///< empty path -> procedural head
+    /// Automatic landmarking (dlib 68-point on a front render) before the default rig is built.
+    /// Auto = use it when available, Off = proportional guesses, On = required (logs a warning on failure).
+    enum class AutoLandmarks { Auto, Off, On };
+    AutoLandmarks autoLandmarks = AutoLandmarks::Auto;
+    FaceLandmarks lastLandmarks;                  ///< result of the last detection attempt (found=false when skipped/failed)
+    /// Runs detection now (also used by the GUI's "Detect landmarks" button). Returns found.
+    bool detectLandmarksNow();
     void buildDefaultRig();
     /// Check-Model step: rotate / mirror / offset the loaded model (and its authored blendshapes)
     /// before rigging. `R` is applied about the model centre; the mesh is re-normalised afterwards.

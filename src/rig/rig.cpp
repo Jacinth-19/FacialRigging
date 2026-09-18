@@ -245,20 +245,14 @@ float falloff(const glm::vec3& p, const glm::vec3& c, const glm::vec3& radii) {
 }
 } // namespace
 
-void Rig::buildDefaultFaceRig() {
+void Rig::buildDefaultFaceRig(const FaceLandmarks* lmIn) {
     const glm::vec3 lo = mesh.boundsMin(), hi = mesh.boundsMax();
     const glm::vec3 size = hi - lo;
     const glm::vec3 centre = 0.5f * (lo + hi);
     const float H = size.y, W = size.x, D = size.z;
-    // Landmark estimates in normalised face space (front is +z).
-    const float frontZ = hi.z;
-    const glm::vec3 mouth(centre.x, lo.y + 0.28f * H, frontZ);
-    const glm::vec3 browL(centre.x - 0.20f * W, lo.y + 0.68f * H, frontZ);
-    const glm::vec3 browR(centre.x + 0.20f * W, lo.y + 0.68f * H, frontZ);
-    const glm::vec3 eyeL(centre.x - 0.20f * W, lo.y + 0.60f * H, frontZ);
-    const glm::vec3 eyeR(centre.x + 0.20f * W, lo.y + 0.60f * H, frontZ);
-    const glm::vec3 cornerL(centre.x - 0.16f * W, mouth.y, frontZ);
-    const glm::vec3 cornerR(centre.x + 0.16f * W, mouth.y, frontZ);
+    // Landmarks: detected (dlib on a front render) when supplied and valid, else the proportional guesses.
+    landmarks = (lmIn && lmIn->found) ? *lmIn : proportionalLandmarks(mesh);
+    const glm::vec3 mouth = landmarks.mouth, browL = landmarks.browL, browR = landmarks.browR, eyeL = landmarks.eyeL, eyeR = landmarks.eyeR, cornerL = landmarks.cornerL, cornerR = landmarks.cornerR;
 
     // --- skeleton: Head (root, at neck) and Jaw (pivot near the ears)
     skeleton = Skeleton{};
@@ -412,7 +406,7 @@ void Rig::buildDefaultFaceRig() {
     controlPoints.clear();
     auto surf = [&](const glm::vec3& approx) { return mesh.positions[closestVertex(mesh.positions, approx)]; };
     int cp;
-    cp = addControlPoint(surf(mouth - glm::vec3(0, 0.10f * H, 0)), "Chin");        bindToBone(cp, 1);
+    cp = addControlPoint(surf(landmarks.found ? landmarks.chin : mouth - glm::vec3(0, 0.10f * H, 0)), "Chin");        bindToBone(cp, 1);
     cp = addControlPoint(surf(cornerL), "MouthCornerL"); bindToBlendShape(cp, findBlendShape(shapes::MouthSmile), glm::vec3(-0.6f, 0.8f, 0), 0.05f * H);
     cp = addControlPoint(surf(cornerR), "MouthCornerR"); bindToBlendShape(cp, findBlendShape(shapes::MouthSmile), glm::vec3(0.6f, 0.8f, 0), 0.05f * H);
     cp = addControlPoint(surf(mouth), "LipCentre");      bindToBlendShape(cp, findBlendShape(shapes::MouthPucker), glm::vec3(0, 0, 1), 0.05f * D);

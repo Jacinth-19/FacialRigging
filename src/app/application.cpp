@@ -67,7 +67,9 @@ int Application::run() {
     meshRenderer.shadeMode = MeshRenderer::ShadeMode(std::clamp(opts_.shadeMode, 0, 5));
     msaaSamples = opts_.msaa;
     if (!opts_.projectPath.empty() && loadProject(opts_.projectPath)) { projectLoadedOnStart = true; } else
+    pipe.autoLandmarks = opts_.landmarks == "off" ? Pipeline::AutoLandmarks::Off : opts_.landmarks == "on" ? Pipeline::AutoLandmarks::On : Pipeline::AutoLandmarks::Auto;
     loadModel(opts_.modelPath);
+    showLandmarks = opts_.showLandmarks;
     if (opts_.gazeYaw != 0.0f || opts_.gazePitch != 0.0f) pipe.rig.setGaze(opts_.gazeYaw, opts_.gazePitch);
     bool wantClip = !opts_.audioPath.empty() || opts_.autoGenerate || !opts_.exportOnStart.empty() || opts_.renderFrames > 0;
     if (wantClip) loadAudio(opts_.audioPath);
@@ -346,6 +348,14 @@ void Application::drawScene() { meshRenderer.draw(pipe.rig, view_, proj_, camera
 
 void Application::drawGizmos() {
     const Rig& rig = pipe.rig;
+    if (showLandmarks) {
+        const FaceLandmarks& L = pipe.lastLandmarks.found ? pipe.lastLandmarks : rig.landmarks;
+        if (!L.points68.empty()) {
+            for (size_t i = 0; i < L.points68.size(); ++i) gizmos.point(L.points68[i], {1.0f, 0.85f, 0.2f, 1.0f});
+            auto chain = [&](int a, int b, bool close) { for (int i = a; i < b; ++i) gizmos.line(L.points68[size_t(i)], L.points68[size_t(i + 1)], {1.0f, 0.7f, 0.1f, 0.8f}); if (close) gizmos.line(L.points68[size_t(b)], L.points68[size_t(a)], {1.0f, 0.7f, 0.1f, 0.8f}); };
+            chain(0, 16, false); chain(17, 21, false); chain(22, 26, false); chain(27, 30, false); chain(31, 35, false); chain(36, 41, true); chain(42, 47, true); chain(48, 59, true); chain(60, 67, true);
+        }
+    }
     if (showBones) {
         auto W = rig.skeleton.poseWorldMatrices();
         for (size_t i = 0; i < W.size(); ++i) {

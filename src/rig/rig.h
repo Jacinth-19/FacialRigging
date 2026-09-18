@@ -1,5 +1,6 @@
 #pragma once
 #include "core/mesh.h"
+#include "rig/landmarks.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <optional>
@@ -131,7 +132,8 @@ public:
     /// Builds a generic default face rig on the current mesh: head+jaw bones with
     /// height-based weights, and a set of procedural blendshapes (JawOpen, MouthSmile,
     /// MouthPucker, MouthWide, LipsPress, BrowRaise, EyeBlink, MouthFunnel).
-    void buildDefaultFaceRig();
+    void buildDefaultFaceRig(const FaceLandmarks* landmarks = nullptr);
+    FaceLandmarks landmarks;   ///< landmarks the current rig was built from (detected or proportional)
 
     /// Replaces the procedural shapes with authored ones (e.g. ICT-FaceKit / ARKit set). Shapes
     /// whose names map to a canonical shape (see canonicalShapeName) are merged into it so the

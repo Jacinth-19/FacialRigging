@@ -119,6 +119,7 @@ void menuBar(Application& app) {
             ImGui::MenuItem("Control points", nullptr, &app.showPoints);
             ImGui::MenuItem("Bones", nullptr, &app.showBones);
             ImGui::MenuItem("Labels", nullptr, &app.showLabels);
+            ImGui::MenuItem("Detected landmarks", nullptr, &app.showLandmarks, !app.pipe.rig.landmarks.points68.empty() || !app.pipe.lastLandmarks.points68.empty());
             ImGui::MenuItem("GPU deformation", nullptr, &app.meshRenderer.gpuDeform);
             if (ImGui::BeginMenu("Anti-aliasing")) {
                 for (int n : {0, 2, 4, 8, 16}) {
@@ -316,6 +317,19 @@ void pageCheck(Application& app) {
         ImGui::TextColored(cx ? kAccent : kWarn, "%s  centred on x = 0", cx ? ICON_MD_CHECK_CIRCLE : ICON_MD_WARNING);
     }
     ImGui::Dummy(ImVec2(0, 6 * S()));
+    {   // landmarking mode
+        SectionLabel("Landmarks :");
+        std::string why; const bool avail = landmarkerAvailable(&why);
+        int mode = int(p.autoLandmarks);
+        if (ImGui::RadioButton("Auto-detect (dlib 68-point on a front render)", mode == 0)) p.autoLandmarks = Pipeline::AutoLandmarks::Auto;
+        if (ImGui::RadioButton("Proportional guesses only", mode == 1)) p.autoLandmarks = Pipeline::AutoLandmarks::Off;
+        if (!avail) ImGui::TextColored(kWarn, ICON_MD_WARNING "  %s", why.c_str());
+        else if (p.lastLandmarks.found) ImGui::TextColored(kAccent, ICON_MD_CHECK_CIRCLE "  %s", p.lastLandmarks.note.c_str());
+        else if (!p.lastLandmarks.note.empty()) ImGui::TextColored(kWarn, ICON_MD_WARNING "  %s", p.lastLandmarks.note.c_str());
+        if (avail && WideButton(ICON_MD_FACE "  Detect now (preview)", ImVec2(-1, 26 * S()), m.vertexCount() > 0)) { p.detectLandmarksNow(); app.showLandmarks = true; app.status = p.log.back(); }
+        if (!p.lastLandmarks.points68.empty()) ImGui::Checkbox("Show 68 landmarks in the viewport", &app.showLandmarks);
+    }
+    ImGui::Dummy(ImVec2(0, 6 * S()));
     if (PrimaryButton(ICON_MD_FACE_RETOUCHING_NATURAL "  Rig Face", ImVec2(-1, 36 * S()), m.vertexCount() > 0)) {
         app.pushUndo("rig face"); p.buildDefaultRig(); app.reuploadMesh(); app.status = p.log.back();
         ui.stepDone[StepCheck] = ui.stepDone[StepRig] = true; ui.step = StepRig;
@@ -495,6 +509,8 @@ void pageRig(Application& app) {
     }
     auto parts = rig.detectParts();
     ImGui::TextColored(kTextDim, "%zu bones  %zu blendshapes  %zu control points", rig.skeleton.bones.size(), rig.blendShapes.size(), rig.controlPoints.size());
+    if (rig.landmarks.found) { ImGui::TextColored(kAccent, ICON_MD_FACE "  Landmarks auto-detected (score %.2f)", rig.landmarks.confidence); ImGui::SameLine(); ImGui::Checkbox("##showlm", &app.showLandmarks); }
+    else ImGui::TextColored(kTextDim, "Landmarks: proportional guesses (%s)", app.pipe.lastLandmarks.note.empty() ? "auto-detect off" : app.pipe.lastLandmarks.note.c_str());
     if (parts.any()) {
         ImGui::TextColored(kAccent, "Anatomical parts bound:"); ImGui::SameLine();
         std::string s; if (parts.teethLower >= 0) s += "lower teeth/gums/tongue -> Jaw  "; if (parts.browL >= 0) s += "brows  "; if (parts.eyeL >= 0) s += "eyes";

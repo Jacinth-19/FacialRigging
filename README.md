@@ -29,7 +29,7 @@ ctest --test-dir build                  # 32 unit tests
 ```
 
 Dependencies are vendored as submodules (GLFW, Dear ImGui, glm, Catch2, **Assimp**, **PortAudio**,
-**alsa-lib** headers, **Material Icons**, **stb** (`stb_image` for reference images); see `third_party/patches` for two small local patches).
+**alsa-lib** headers, **Material Icons**, **stb**, **dlib** (`stb_image` for reference images); see `third_party/patches` for two small local patches).
 `python3` is needed at build time (it unpacks the Material Icons webfont and generates the icon
 codepoint header from the submodule). On Linux the GUI needs X11 dev headers
 (`libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev`) for a window; without them
@@ -135,6 +135,18 @@ model runs in every build; `FR_WITH_TORCH` additionally allows TorchScript `.pt`
 - **Idle motion.** Blinks are a Weibull renewal process (mean 3 s while speaking / 4.5 s listening,
   extra blink at pause onsets, occasional double blinks) plus breathing (`src/anim/idle_motion.*`).
 - **Tongue.** ICT-style heads with a tongue part get a `Tongue` bone under `Jaw`; `L/T/D/N/TH` phones raise it.
+
+### Automatic landmarking (dlib)
+
+Rig landmarks (mouth, mouth corners, brows, eyelids, chin) are no longer bounding-box proportions:
+`src/rig/landmarks.cpp` renders the mesh front-on with a tiny software rasterizer (skin part only,
+with a per-pixel world-position buffer), runs dlib's HOG face detector + the **68-point shape
+predictor** on it, lifts the 2D points back onto the surface and derives the rig landmarks from the
+iBUG-68 layout. `tools/bootstrap.sh` fetches `data/models/shape_predictor_68_face_landmarks.dat`
+(99 MB, gitignored); without it - or without a detectable face (the procedural egg head) - the old
+proportional guesses are used and the UI says so. *Check Model ▸ Landmarks* chooses the mode, previews
+the 68 points in the viewport; CLI `--landmarks auto|on|off`, `fr_cli --dump-landmarks lm.pgm`,
+GUI `--show-landmarks`. Disable the dependency with `-DFR_WITH_DLIB=OFF`.
 
 ### Rig authoring: weight painting, sculpted shapes, correctives
 

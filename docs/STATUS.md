@@ -39,6 +39,8 @@
 | ARKit 52 CSV + Live Link | ✅ `src/export/arkit_livelink.*`: mapping (50/52 on ICT), 60 fps mocap CSV writer/reader, Live Link Face UDP sender; GUI stream panel, `--format csv`, `--livelink` | Mapping is name-based; no calibration against a real capture yet |
 | Audio in exports | ✅ `.wav` sidecar + offsets (glTF `asset.extras.audio`, `.audio.json` manifests), `--embed-audio` buffer view in `.glb` | FBX has no audio container; manifest only |
 | Project files | ✅ `.frproj` (`src/app/project.*`): paths, orientation, settings, handles, painted skin, user/corrective shapes, pose, clip; GUI + CLI | Undo history is not persisted |
+| Video / turntable export | ✅ `render/video_export.cpp`: offscreen MSAA FBO → ffmpeg pipe (mp4 H.264 / webm VP9 / gif), audio muxed from the session WAV, orbit + pitch sway, loop, CRF; GUI *File ▸ Render video*, CLI `--video out.mp4 --orbit 360 --video-size WxH --video-seconds s`; falls back to a PPM sequence without ffmpeg | ffmpeg must be on PATH (or `VideoSettings::ffmpeg`) |
+| Camera bookmarks | ✅ 7 presets (front, ¾ L/R, profiles, top, back) + 4 user slots, animated transitions; viewport bar, View ▸ Camera, Shift+1..7 / F1..F4 / Ctrl+F1..F4 | Reference image / video split view: next |
 | PBR-ish skin preview | ✅ shade mode 5: part materials, wrap-SSS + red bleed, GGX, analytic IBL, eye iris/catch-light, occlusion-shell pass, ACES; *Skin look* menu | Texture maps (albedo/normal) not loaded yet |
 | Audio encryption at rest | ❌ | Only needed once recordings are persisted |
 

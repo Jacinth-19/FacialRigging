@@ -274,6 +274,7 @@ if(FR_BUILD_APP)
     src/app/application.cpp
     src/render/shader.cpp
     src/render/mesh_renderer.cpp
+    src/render/video_export.cpp
     src/render/gizmo_renderer.cpp
     src/ui/panels.cpp
     src/ui/theme.cpp)

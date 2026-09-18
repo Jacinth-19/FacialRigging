@@ -188,6 +188,22 @@ with a pre-integrated red terminator bleed, two-lobe GGX specular, an analytic *
 *View ▸ Skin look* exposes exposure, subsurface, environment, key direction / warmth and tint.
 Headless: `--shade 5 --clean --zoom 0.4 [--look-at x y z]` for review renders.
 
+### Video / turntable export and camera bookmarks
+
+*File ▸ Render video / turntable…* (also on the Check Animation page) renders the clip offscreen at any
+size / fps with the current shading, optionally orbiting the camera (turntable 360°, half turn, slow
+drift, pitch sway) and pipes raw frames into **ffmpeg** (`.mp4` H.264, `.webm` VP9 or `.gif`), muxing the
+session audio. Without ffmpeg on PATH a numbered `.ppm` sequence is written instead. Headless:
+
+```sh
+tools/run_headless.sh --model assets/models/ict_face/ict_face.obj --transcript "hello there" \
+    --generate --shade 5 --video out/turntable.mp4 --orbit 360 --video-size 1280x720 [--video-seconds 6]
+```
+
+Camera **bookmarks**: the bar at the top-right of the viewport (and *View ▸ Camera*) has front / ¾ left /
+¾ right / profile / top / back presets (`Shift+1..7`) and four user slots (`F1..F4` recall,
+`Ctrl+F1..F4` store); transitions are animated along the shortest yaw path.
+
 ### Timeline editor
 
 On *Check Animation* a dope-sheet opens under the viewport: a time ruler, an **Audio** waveform lane

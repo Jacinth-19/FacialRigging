@@ -40,7 +40,8 @@ struct UiState {
     char projectBuf[512] = "out/session.frproj";
     char liveLinkHost[64] = "127.0.0.1"; int liveLinkPort = 11111;
     // export
-    bool showExportDialog = false, showImportClip = false; int showProjectDialog = 0; // 1 open, 2 save
+    bool showExportDialog = false, showImportClip = false, showVideoDialog = false; int showProjectDialog = 0; // 1 open, 2 save
+    char videoBuf[512] = "out/turntable.mp4"; int videoPreset = 1;
     int rigTabRequest = -1;
     // bake / correctives
     char bakeName[64] = "Custom"; bool bakeResidual = true, bakeSplit = false; int corrA = 0, corrB = 0;
@@ -77,6 +78,7 @@ void menuBar(Application& app) {
             if (ImGui::MenuItem("Save Project...", "Ctrl+S", false, app.pipe.rig.mesh.vertexCount() > 0)) ui.showProjectDialog = 2;
             ImGui::Separator();
             if (ImGui::MenuItem("Export...", nullptr, false, app.pipe.rig.mesh.vertexCount() > 0)) ui.showExportDialog = true;
+            if (ImGui::MenuItem("Render video / turntable...", nullptr, false, app.pipe.rig.mesh.vertexCount() > 0)) ui.showVideoDialog = true;
             if (ImGui::MenuItem("Import clip JSON...", nullptr, false, app.pipe.rig.mesh.vertexCount() > 0)) { ui.step = StepAnim; ui.showImportClip = true; }
             ImGui::EndMenu();
         }
@@ -94,6 +96,15 @@ void menuBar(Application& app) {
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("View")) {
+            if (ImGui::BeginMenu("Camera")) {
+                static const char* names[7] = {"Front", "Three-quarter left", "Three-quarter right", "Left profile", "Right profile", "Top", "Back"};
+                for (int i = 0; i < 7; ++i) { char sc[16]; std::snprintf(sc, sizeof sc, "Shift+%d", i + 1); if (ImGui::MenuItem(names[i], sc)) app.goToPreset(i); }
+                ImGui::Separator();
+                for (int i = 0; i < 4; ++i) { char l[48], sc[8]; std::snprintf(l, sizeof l, app.userCams[i].set ? "Bookmark %d" : "Bookmark %d (empty)", i + 1); std::snprintf(sc, sizeof sc, "F%d", i + 1); if (ImGui::MenuItem(l, sc, false, app.userCams[i].set)) app.recallUserCam(i); }
+                ImGui::Separator();
+                for (int i = 0; i < 4; ++i) { char l[48], sc[12]; std::snprintf(l, sizeof l, "Store bookmark %d", i + 1); std::snprintf(sc, sizeof sc, "Ctrl+F%d", i + 1); if (ImGui::MenuItem(l, sc)) app.storeUserCam(i); }
+                ImGui::EndMenu();
+            }
             ImGui::MenuItem("Wireframe", nullptr, &app.meshRenderer.wireframe);
             ImGui::MenuItem("Control points", nullptr, &app.showPoints);
             ImGui::MenuItem("Bones", nullptr, &app.showBones);
@@ -716,6 +727,7 @@ void pageAnim(Application& app) {
     ImGui::SetNextItemWidth(-1); ImGui::InputTextWithHint("##var", "variations, ; separated", ui.variationBuf, sizeof ui.variationBuf);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("e.g. \"Increase smile; Raise eyebrows; intensity=1.4; subtle\" - one extra file per variation");
     if (PrimaryButton(ICON_MD_IOS_SHARE "  Export...", ImVec2(-1, 36 * S()))) ui.showExportDialog = true;
+    if (WideButton(ICON_MD_MOVIE "  Render video / turntable...", ImVec2(-1, 30 * S()))) ui.showVideoDialog = true;
     Rule();
     ImGui::TextColored(kTextDim, "Log");
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.09f, 0.09f, 0.09f, 1));
@@ -1131,6 +1143,41 @@ void exportDialog(Application& app) {
         if (WideButton("Cancel", ImVec2(-1, 28 * S()))) { ui.showProjectDialog = 0; ImGui::CloseCurrentPopup(); }
         ImGui::EndPopup();
     }
+    if (ui.showVideoDialog) { ImGui::OpenPopup("Render video"); ui.showVideoDialog = false; }
+    ImGui::SetNextWindowSize(ImVec2(420 * S(), 0));
+    if (ImGui::BeginPopupModal("Render video", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
+        VideoSettings& v = app.videoSettings;
+        static std::string ffVersion; static int ffState = -1; if (ffState < 0) ffState = ffmpegAvailable(v.ffmpeg, &ffVersion) ? 1 : 0;
+        ImGui::TextUnformatted("Renders the clip offscreen with the current shading and camera and encodes it with ffmpeg (audio muxed).");
+        if (ffState == 1) ImGui::TextColored(kTextDim, "%s", ffVersion.c_str()); else ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "ffmpeg not found on PATH - an image sequence (.ppm) will be written instead");
+        ImGui::SetNextItemWidth(-1); ImGui::InputTextWithHint("##vout", "out/turntable.mp4 (.mp4 / .webm / .gif)", ui.videoBuf, sizeof ui.videoBuf);
+        static const char* kinds[] = {"Playback (camera as is)", "Turntable 360", "Half turn -90..+90", "Slow drift 30"};
+        static const float orbit[] = {0.0f, 360.0f, 180.0f, 30.0f};
+        if (ImGui::Combo("Camera move", &ui.videoPreset, kinds, 4)) v.orbitDegrees = orbit[ui.videoPreset];
+        if (ui.videoPreset == 2) { /* start at -90 */ }
+        ImGui::SliderFloat("Orbit (deg)", &v.orbitDegrees, -720.0f, 720.0f, "%.0f");
+        ImGui::SliderFloat("Pitch sway (deg)", &v.orbitPitchDegrees, 0.0f, 30.0f, "%.0f");
+        static const char* sizes[] = {"1280 x 720", "1920 x 1080", "960 x 540", "1080 x 1080 (square)", "720 x 1280 (portrait)"}; static const int sw[] = {1280, 1920, 960, 1080, 720}, sh[] = {720, 1080, 540, 1080, 1280};
+        static int sizeIdx = 0; if (ImGui::Combo("Size", &sizeIdx, sizes, 5)) { v.width = sw[sizeIdx]; v.height = sh[sizeIdx]; }
+        static const char* fpss[] = {"24", "25", "30", "60"}; static const float fpsv[] = {24, 25, 30, 60}; static int fpsIdx = 2; if (ImGui::Combo("Frame rate", &fpsIdx, fpss, 4)) v.fps = fpsv[fpsIdx];
+        float dur = app.pipe.clip.duration; float len = v.endSec > 0 ? v.endSec : (dur > 0 ? dur : 4.0f);
+        if (ImGui::SliderFloat("Length (s)", &len, 0.5f, std::max(10.0f, dur * 3), "%.1f")) v.endSec = len;
+        ImGui::SameLine(); if (ImGui::SmallButton("clip")) v.endSec = -1.0f;
+        ImGui::Checkbox("Loop the clip if the video is longer", &v.loopClip); ImGui::SameLine(); ImGui::Checkbox("Audio", &v.includeAudio);
+        ImGui::Checkbox("Handles / bones overlay", &app.videoWithGizmos); ImGui::SameLine(); ImGui::SliderInt("MSAA", &v.msaa, 0, 8); ImGui::SameLine(); ImGui::SetNextItemWidth(60 * S()); ImGui::SliderInt("CRF", &v.crf, 12, 30);
+        int frames = int(std::round(len * v.fps)); ImGui::TextColored(kTextDim, "%d frames at %d x %d  -  shading: %s", frames, v.width, v.height, app.meshRenderer.shadeMode == MeshRenderer::ShadeMode::Skin ? "Skin (PBR)" : "current mode");
+        if (app.videoProgress >= 0.0f) ImGui::ProgressBar(app.videoProgress, ImVec2(-1, 0));
+        if (PrimaryButton(ICON_MD_MOVIE "  Render", ImVec2(-1, 34 * S()))) {
+            std::string out = ui.videoBuf; std::string seq;
+            if (ffState != 1) { auto dot = out.find_last_of('.'); seq = (dot == std::string::npos ? out : out.substr(0, dot)) + "_%04d.ppm"; }
+            ui.stepDone[StepAnim] = true;
+            app.renderVideo(out, v, app.videoWithGizmos, seq);
+            ImGui::CloseCurrentPopup();
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Blocks the UI while rendering (software GL: a few seconds per second of video).");
+        if (WideButton("Cancel", ImVec2(-1, 28 * S()))) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
     if (ui.showExportDialog) { ImGui::OpenPopup("Export"); ui.showExportDialog = false; }
     ImGui::SetNextWindowSize(ImVec2(360 * S(), 0));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16 * S(), 16 * S()));
@@ -1227,6 +1274,27 @@ void viewportOverlay(Application& app) {
     ImGui::Dummy(ImVec2(0, 6 * S()));
     if (iconBtn(ICON_MD_CENTER_FOCUS_STRONG, false, "Frame the face")) { app.camera.target = 0.5f * (r.mesh.boundsMin() + r.mesh.boundsMax()); app.camera.distance = 2.2f * glm::length(e); app.camera.yaw = app.camera.pitch = 0; }
     ImGui::End();
+    // camera bookmark bar (top-right of the viewport): presets + 4 user slots
+    {
+        ImGui::SetNextWindowPos(ImVec2(x1 - 10 * S(), vp->WorkPos.y + 8 * S()), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
+        ImGui::SetNextWindowBgAlpha(0.35f);
+        ImGui::Begin("##cams", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings);
+        ImGui::PushFont(ui.fonts.small);
+        struct P { const char* label; const char* tip; }; static const P presets[7] = {{"F", "Front (Shift+1)"}, {"\xc2\xbeL", "Three-quarter left (Shift+2)"}, {"\xc2\xbeR", "Three-quarter right (Shift+3)"}, {"L", "Left profile (Shift+4)"}, {"R", "Right profile (Shift+5)"}, {"T", "Top (Shift+6)"}, {"B", "Back (Shift+7)"}};
+        for (int i = 0; i < 7; ++i) { if (i) ImGui::SameLine(0, 2 * S()); if (ImGui::Button(presets[i].label, ImVec2(28 * S(), 22 * S()))) app.goToPreset(i); if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", presets[i].tip); }
+        ImGui::SameLine(0, 10 * S());
+        for (int i = 0; i < 4; ++i) {
+            if (i) ImGui::SameLine(0, 2 * S());
+            char l[8]; std::snprintf(l, sizeof l, "%d", i + 1);
+            const bool set = app.userCams[i].set;
+            if (set) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(kAccent.x, kAccent.y, kAccent.z, 0.55f));
+            if (ImGui::Button(l, ImVec2(24 * S(), 22 * S()))) { if (ImGui::GetIO().KeyCtrl || !set) app.storeUserCam(i); else app.recallUserCam(i); }
+            if (set) ImGui::PopStyleColor();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip(set ? "Bookmark %d: click / F%d to recall, Ctrl+click / Ctrl+F%d to overwrite" : "Empty slot %d: click / Ctrl+F%d to store the current camera%.0s", i + 1, i + 1, i + 1);
+        }
+        ImGui::PopFont();
+        ImGui::End();
+    }
     // status line bottom-left of viewport
     if (!app.status.empty()) {
         float lift = (app.pipe.clip.duration > 0 && ui.step == StepAnim && ui.timelineOpen) ? timeline::tlHeight() : 0.0f;

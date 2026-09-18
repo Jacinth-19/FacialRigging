@@ -105,6 +105,12 @@ int Application::run() {
         }
     }
     lastFrameTime_ = glfwGetTime();
+    if (!opts_.videoOut.empty()) {
+        if (pipe.clip.duration <= 0) generate();
+        VideoSettings vs; vs.width = opts_.videoW; vs.height = opts_.videoH; vs.orbitDegrees = opts_.videoOrbit; vs.endSec = opts_.videoSeconds; vs.msaa = std::max(msaaSamples, 4);
+        if (renderVideo(opts_.videoOut, vs)) std::printf("[fr] wrote %s\n", opts_.videoOut.c_str()); else std::fprintf(stderr, "[fr] video failed: %s\n", status.c_str());
+        glfwSetWindowShouldClose(window_, 1);
+    }
     if (opts_.renderFrames > 0) {
         // Offscreen proof-of-render: step through the clip deterministically and dump frames.
         playing = false;
@@ -147,6 +153,11 @@ void Application::frame() {
         pipe.clip.applyTo(pipe.rig, playTime);
     }
     liveLinkTick();
+    if (camAnimT_ < 1.0f) {
+        camAnimT_ = std::min(1.0f, camAnimT_ + dt / camAnimDur_); float u = camAnimT_ * camAnimT_ * (3.0f - 2.0f * camAnimT_);
+        camera.yaw = glm::mix(camFrom_.yaw, camTo_.yaw, u); camera.pitch = glm::mix(camFrom_.pitch, camTo_.pitch, u); camera.distance = glm::mix(camFrom_.distance, camTo_.distance, u); camera.target = glm::mix(camFrom_.target, camTo_.target, u);
+        view_ = camera.view();
+    }
 
     ImGui_ImplOpenGL3_NewFrame(); ImGui_ImplGlfw_NewFrame(); ImGui::NewFrame();
     handleViewportInput();
@@ -239,7 +250,9 @@ void Application::handleViewportInput() {
             if (ImGui::IsKeyPressed(ImGuiKey_RightBracket)) brush.radius = std::min(2.0f, brush.radius * 1.25f);
         }
         if (ImGui::IsKeyPressed(ImGuiKey_Space) && pipe.clip.duration > 0) playing = !playing;
-        for (int k = 0; k < 6; ++k) if (ImGui::IsKeyPressed(ImGuiKey(int(ImGuiKey_1) + k))) meshRenderer.shadeMode = MeshRenderer::ShadeMode(k);
+        for (int k = 0; k < 6; ++k) if (!io.KeyShift && ImGui::IsKeyPressed(ImGuiKey(int(ImGuiKey_1) + k))) meshRenderer.shadeMode = MeshRenderer::ShadeMode(k);
+        for (int k = 0; k < 7; ++k) if (io.KeyShift && ImGui::IsKeyPressed(ImGuiKey(int(ImGuiKey_1) + k))) goToPreset(k);
+        for (int k = 0; k < 4; ++k) if (ImGui::IsKeyPressed(ImGuiKey(int(ImGuiKey_F1) + k))) { if (io.KeyCtrl) storeUserCam(k); else if (!recallUserCam(k)) status = "Camera slot " + std::to_string(k + 1) + " is empty (Ctrl+F" + std::to_string(k + 1) + " stores the current view)"; }
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z)) undo();
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S) && pipe.rig.mesh.vertexCount() > 0) saveProject("out/session.frproj");
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Y)) redo();
@@ -481,6 +494,60 @@ void Application::exportNow(const std::string& path, const std::vector<std::stri
     std::string err;
     auto files = pipe.exportAll(path, ext, vars, &err);
     status = files.empty() ? "Export failed: " + err : "Exported " + std::to_string(files.size()) + " file(s): " + files.front();
+}
+
+void Application::goToPreset(int preset) {
+    CamPose p; const Rig& r = pipe.rig; glm::vec3 e = r.mesh.boundsMax() - r.mesh.boundsMin();
+    p.target = 0.5f * (r.mesh.boundsMin() + r.mesh.boundsMax()); p.distance = 2.2f * glm::length(e); p.set = true;
+    if (camera.distance > 0.05f * p.distance && camera.distance < 3.0f * p.distance) { p.distance = camera.distance; p.target = camera.target; }
+    switch (preset) {
+        case 1: p.yaw = glm::radians(-45.0f); p.pitch = glm::radians(5.0f); break;
+        case 2: p.yaw = glm::radians(45.0f); p.pitch = glm::radians(5.0f); break;
+        case 3: p.yaw = glm::radians(-90.0f); break;
+        case 4: p.yaw = glm::radians(90.0f); break;
+        case 5: p.yaw = 0; p.pitch = glm::radians(80.0f); break;
+        case 6: p.yaw = glm::radians(180.0f); break;
+        default: break;
+    }
+    animateCameraTo(p);
+}
+void Application::storeUserCam(int slot) { if (slot < 0 || slot > 3) return; userCams[slot] = CamPose{camera.yaw, camera.pitch, camera.distance, camera.target, true}; status = "Stored camera " + std::to_string(slot + 1) + " (F" + std::to_string(slot + 1) + " recalls it)"; }
+bool Application::recallUserCam(int slot) { if (slot < 0 || slot > 3 || !userCams[slot].set) return false; animateCameraTo(userCams[slot]); return true; }
+void Application::animateCameraTo(const CamPose& p, float seconds) {
+    camFrom_ = CamPose{camera.yaw, camera.pitch, camera.distance, camera.target, true}; camTo_ = p;
+    // shortest yaw path
+    float d = camTo_.yaw - camFrom_.yaw; while (d > glm::pi<float>()) d -= glm::two_pi<float>(); while (d < -glm::pi<float>()) d += glm::two_pi<float>(); camTo_.yaw = camFrom_.yaw + d;
+    camAnimT_ = 0.0f; camAnimDur_ = std::max(0.01f, seconds);
+}
+
+bool Application::renderVideo(const std::string& path, const VideoSettings& settingsIn, bool withGizmos, const std::string& seq) {
+    VideoSettings s = settingsIn;
+    auto slash = path.find_last_of("/\\");
+    if (slash != std::string::npos) { std::string cmd = "mkdir -p \"" + path.substr(0, slash) + "\""; (void)std::system(cmd.c_str()); }
+    if (s.includeAudio && s.audioPath.empty() && !pipe.audio.samples.empty()) {
+        std::string wav = path.substr(0, path.find_last_of('.') == std::string::npos ? path.size() : path.find_last_of('.')) + ".audio.wav";
+        std::string err; if (saveWav(wav, pipe.audio, &err)) s.audioPath = wav;
+    }
+    const bool wasPlaying = playing; playing = false;
+    const float savedTime = playTime;
+    videoProgress = 0.0f;
+    std::string err;
+    bool ok = exportVideo(path, s, camera, pipe.clip.duration,
+        [&](float t, const OrbitCamera& cam, int w, int h) {
+            if (pipe.clip.duration > 0) pipe.clip.applyTo(pipe.rig, t);
+            view_ = cam.view(); proj_ = cam.projection(float(w) / float(h));
+            glClearColor(0.235f, 0.235f, 0.235f, 1.0f); glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            if (!glIsES()) glEnable(GL_MULTISAMPLE);
+            meshRenderer.draw(pipe.rig, view_, proj_, cam.position());
+            if (withGizmos) drawGizmos();
+        },
+        [&](const VideoProgress& p) { videoProgress = p.total ? float(p.frame) / float(p.total) : 0.0f; return true; },
+        &err, seq);
+    videoProgress = -1.0f;
+    playTime = savedTime; if (pipe.clip.duration > 0) pipe.clip.applyTo(pipe.rig, playTime); playing = wasPlaying;
+    glfwGetFramebufferSize(window_, &fbSize_.x, &fbSize_.y); glViewport(0, 0, fbSize_.x, fbSize_.y);
+    status = ok ? "Wrote video " + path : "Video export failed: " + err;
+    return ok;
 }
 
 bool Application::saveProject(const std::string& path) {

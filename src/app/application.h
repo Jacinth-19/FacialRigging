@@ -7,6 +7,7 @@
 #include "core/raycast.h"
 #include "render/gizmo_renderer.h"
 #include "render/mesh_renderer.h"
+#include "render/video_export.h"
 #include <glm/glm.hpp>
 #include <string>
 #include <vector>
@@ -53,6 +54,7 @@ public:
         glm::vec3 lookAt{0.0f}; bool haveLookAt = false;   ///< --look-at x y z: camera target (mesh space)
         float zoom = 1.0f;                ///< camera distance multiplier at start (<1 = closer)
         bool clean = false;               ///< hide handles / bones / labels (review renders)
+        std::string videoOut; float videoOrbit = 0.0f; int videoW = 1280, videoH = 720; float videoSeconds = -1.0f;   ///< --video out.mp4 [--orbit deg] [--video-size WxH] [--video-seconds s]
         bool keysDemo = false;            ///< seed a few key-layer keys on JawOpen + Head X and open the timeline in key mode (screenshots/tests)
         bool paintDemo = false;           ///< with paintBone: apply a scripted brush stroke across the cheek (headless demo/test)               ///< select the paint tool on this bone at start (screenshots / demos)
         std::string emotion;              ///< performance-layer emotion preset for generation
@@ -101,6 +103,17 @@ public:
     void generate();
     void exportNow(const std::string& path, const std::vector<std::string>& variations);
     bool projectLoadedOnStart = false;   ///< --project succeeded (UI marks all steps done, jumps to the animation page)
+    /// Turntable / playback video (see render/video_export.h). Renders the scene without UI or gizmos
+    /// (handles/bones only when `withGizmos`), restores the rig pose afterwards. Blocks while encoding.
+    /// Camera bookmarks: 6 presets (front, 3/4 L/R, side L/R, top) + 4 user slots (Ctrl+F1..F4 store, F1..F4 recall). Smoothly animated.
+    struct CamPose { float yaw = 0, pitch = 0, distance = 0; glm::vec3 target{0}; bool set = false; };
+    CamPose userCams[4];
+    void goToPreset(int preset);                 ///< 0 front 1 3/4 left 2 3/4 right 3 left 4 right 5 top 6 back
+    void storeUserCam(int slot); bool recallUserCam(int slot);
+    void animateCameraTo(const CamPose& p, float seconds = 0.35f);
+    CamPose camFrom_, camTo_; float camAnimT_ = 1.0f, camAnimDur_ = 0.35f;
+    bool renderVideo(const std::string& path, const VideoSettings& settings, bool withGizmos = false, const std::string& imageSequencePattern = "");
+    VideoSettings videoSettings; bool videoWithGizmos = false; float videoProgress = -1.0f;   ///< GUI state
     bool saveProject(const std::string& path);
     bool loadProject(const std::string& path);
     // ARKit Live Link streaming (item: mocap-style UDP output). Sends a frame whenever the rig pose changes during playback / live mic / manual posing.

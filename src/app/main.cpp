@@ -35,6 +35,10 @@ int main(int argc, char** argv) {
         else if (a == "--paint-bone") o.paintBone = std::stoi(next());
         else if (a == "--paint-demo") o.paintDemo = true;
         else if (a == "--zoom") o.zoom = std::stof(next());
+        else if (a == "--video") o.videoOut = next();
+        else if (a == "--orbit") o.videoOrbit = std::stof(next());
+        else if (a == "--video-size") { std::string v = next(); auto x = v.find('x'); if (x != std::string::npos) { o.videoW = std::stoi(v.substr(0, x)); o.videoH = std::stoi(v.substr(x + 1)); } }
+        else if (a == "--video-seconds") o.videoSeconds = std::stof(next());
         else if (a == "--look-at") { o.lookAt.x = std::stof(next()); o.lookAt.y = std::stof(next()); o.lookAt.z = std::stof(next()); o.haveLookAt = true; }
         else if (a == "--clean") o.clean = true;
         else if (a == "--keys-demo") { o.keysDemo = true; if (i + 1 < argc && argv[i + 1][0] != '-') o.keysDemoChannel = std::stoi(next()); }
@@ -47,7 +51,7 @@ int main(int argc, char** argv) {
         else if (a == "--msaa") o.msaa = std::stoi(next());
         else if (a == "--gaze") { o.gazeYaw = std::stof(next()); o.gazePitch = std::stof(next()); }
         else if (a == "-h" || a == "--help") {
-            std::puts("facial_rigging [--project s.frproj] [--model face.obj] [--audio speech.wav] [--generate] [--export out/scene.fbx]\n"
+            std::puts("facial_rigging [--project s.frproj] [--model face.obj] [--audio speech.wav] [--video out.mp4 --orbit 360 --video-size 1280x720] [--generate] [--export out/scene.fbx]\n"
                       "               [--variation \"Increase smile\"]... [--size WxH] [--mapper rules|ml] [--model-pt model.pt] [--up auto|y|z] [--live] [--ui-scale F] [--step 0-4]\n"
                       "               [--emotion happy|sad|angry|surprised|disgusted] [--emotion-amount F] [--transcript \"text\"] [--head-motion F] [--gaze-motion F] [--shade 0-4] [--gaze YAW PITCH] [--msaa 0|2|4|8]\n"
                       "               [--headless] [--gles] [--render-frames N] [--frame-pattern out/frame_%03d.ppm]\n"

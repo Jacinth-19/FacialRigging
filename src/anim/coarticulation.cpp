@@ -42,8 +42,9 @@ VisemePose Coarticulator::poseAt(double t) const {
         float D = dominance(k, t);
         if (D <= 0.0f) continue;
         const VisemePose& p = visemePose(segs_[k].viseme);
+        const float tUp = segs_[k].tongueUp >= 0.0f ? std::max(segs_[k].tongueUp, p.tongueUp) : p.tongueUp;
         out.jawOpen += D * p.jawOpen; out.smile += D * p.smile; out.pucker += D * p.pucker; out.wide += D * p.wide;
-        out.lipsPress += D * p.lipsPress; out.funnel += D * p.funnel; out.tongueUp += D * p.tongueUp; out.tongueOut += D * p.tongueOut;
+        out.lipsPress += D * p.lipsPress; out.funnel += D * p.funnel; out.tongueUp += D * tUp; out.tongueOut += D * p.tongueOut;
         sum += D;
     }
     if (sum > 1e-6f) {

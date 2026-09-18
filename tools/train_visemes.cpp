@@ -26,24 +26,11 @@
 using namespace fr;
 namespace fs = std::filesystem;
 
-// TIMIT phone -> our 9 visemes. Closures/silences -> Silence. -1 = skip frame (ambiguous).
+// TIMIT phone -> our 9 visemes (shared table in phonemeToViseme). -1 = skip frame: the
+// alveolar/velar closures carry no lip target of their own.
 static int phoneToViseme(const std::string& p) {
-    static const std::map<std::string, Viseme> m = {
-        {"h#", Viseme::Silence}, {"pau", Viseme::Silence}, {"epi", Viseme::Silence},
-        {"aa", Viseme::AA}, {"ao", Viseme::AA}, {"ah", Viseme::AA}, {"ax", Viseme::AA}, {"ax-h", Viseme::AA}, {"ay", Viseme::AA}, {"aw", Viseme::AA}, {"hh", Viseme::AA}, {"hv", Viseme::AA}, {"q", Viseme::AA},
-        {"iy", Viseme::EE}, {"ey", Viseme::EE}, {"y", Viseme::EE},
-        {"ih", Viseme::IH}, {"ix", Viseme::IH}, {"eh", Viseme::IH}, {"ae", Viseme::IH}, {"axr", Viseme::IH}, {"er", Viseme::IH},
-        {"k", Viseme::IH}, {"g", Viseme::IH}, {"ng", Viseme::IH}, {"eng", Viseme::IH}, {"n", Viseme::IH}, {"nx", Viseme::IH}, {"en", Viseme::IH}, {"t", Viseme::IH}, {"d", Viseme::IH}, {"dx", Viseme::IH}, {"s", Viseme::IH}, {"z", Viseme::IH},
-        {"ow", Viseme::OH}, {"oy", Viseme::OH}, {"r", Viseme::OH},
-        {"uw", Viseme::UW}, {"ux", Viseme::UW}, {"uh", Viseme::UW}, {"w", Viseme::UW}, {"sh", Viseme::UW}, {"zh", Viseme::UW}, {"ch", Viseme::UW}, {"jh", Viseme::UW},
-        {"m", Viseme::MBP}, {"em", Viseme::MBP}, {"b", Viseme::MBP}, {"p", Viseme::MBP}, {"bcl", Viseme::MBP}, {"pcl", Viseme::MBP},
-        {"f", Viseme::FV}, {"v", Viseme::FV},
-        {"l", Viseme::L_TH}, {"el", Viseme::L_TH}, {"th", Viseme::L_TH}, {"dh", Viseme::L_TH},
-    };
-    auto it = m.find(p);
-    if (it != m.end()) return int(it->second);
-    if (p == "tcl" || p == "dcl" || p == "kcl" || p == "gcl") return -1; // closures: mouth shape carried by neighbours
-    return -1;
+    if (p == "tcl" || p == "dcl" || p == "kcl" || p == "gcl") return -1;
+    return int(phonemeToViseme(p));
 }
 
 struct Sample { std::vector<float> x; int y; };

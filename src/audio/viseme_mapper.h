@@ -29,7 +29,8 @@ const VisemeDominance& visemeDominance(Viseme v);
 /// classification), the unit the co-articulation model blends.
 struct VisemeSegment {
     Viseme viseme = Viseme::Silence; double start = 0.0, end = 0.0; float confidence = 1.0f;
-    bool operator==(const VisemeSegment& o) const { return viseme == o.viseme && start == o.start && end == o.end && confidence == o.confidence; }
+    float tongueUp = -1.0f;   ///< <0: use the viseme's default; else explicit tongue-tip lift (from phone identity)
+    bool operator==(const VisemeSegment& o) const { return viseme == o.viseme && start == o.start && end == o.end && confidence == o.confidence && tongueUp == o.tongueUp; }
 };
 
 
@@ -58,7 +59,10 @@ public:
 /// shorter than `minDurationSec` absorbed into their neighbours).
 std::vector<VisemeSegment> segmentVisemes(const std::vector<VisemeFrame>& frames, double frameInterval, double minDurationSec = 0.04);
 
-/// Phoneme string (ARPAbet-like) -> viseme dictionary, for transcripts/forced alignment.
+/// Phoneme string (ARPAbet or TIMIT, any case) -> viseme; the single table shared by trainer,
+/// G2P/aligner and evaluation.
 Viseme phonemeToViseme(const std::string& phoneme);
+/// Extra tongue-tip lift for alveolars (T/D/N/S/Z) that share the IH lip shape; 0 otherwise.
+float phonemeTongueUp(const std::string& phoneme);
 
 } // namespace fr

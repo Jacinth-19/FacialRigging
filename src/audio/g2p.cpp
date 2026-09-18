@@ -2,11 +2,27 @@
 #include <algorithm>
 #include <cctype>
 #include <map>
+#include <fstream>
 #include <sstream>
+#include <unordered_map>
+
+#ifndef FR_ASSET_DIR
+#define FR_ASSET_DIR ""
+#endif
 
 namespace fr {
 
 namespace {
+
+std::unordered_map<std::string, std::string>& bigDict() { static std::unordered_map<std::string, std::string> d; return d; }
+bool g_dictTried = false;
+int g_oovWords = 0, g_words = 0;
+
+void ensureDefaultDict() {
+    if (g_dictTried) return;
+    g_dictTried = true;
+    if (bigDict().empty()) loadPronunciationDictionary(std::string(FR_ASSET_DIR) + "/lexicon/cmudict.tsv");
+}
 
 // Frequent / irregular words (CMUdict-style, stress removed).
 const std::map<std::string, const char*>& lexicon() {
@@ -207,14 +223,38 @@ std::vector<std::string> split(const std::string& s) { std::vector<std::string> 
 
 } // namespace
 
+size_t loadPronunciationDictionary(const std::string& path) {
+    std::ifstream f(path);
+    if (!f) return 0;
+    auto& d = bigDict(); d.clear(); d.reserve(140000);
+    std::string line;
+    while (std::getline(f, line)) {
+        if (line.empty() || line[0] == ';' || line[0] == '#') continue;
+        size_t tab = line.find_first_of("\t ");
+        if (tab == std::string::npos) continue;
+        std::string w = line.substr(0, tab); for (auto& c : w) c = char(std::tolower((unsigned char)c));
+        std::string ph; for (char c : line.substr(tab + 1)) if (!std::isdigit((unsigned char)c)) ph += char(std::toupper((unsigned char)c));
+        // trim
+        size_t a = ph.find_first_not_of(' '); if (a == std::string::npos) continue; ph = ph.substr(a);
+        d.emplace(std::move(w), std::move(ph));
+    }
+    g_dictTried = true;
+    return d.size();
+}
+size_t pronunciationDictionarySize() { ensureDefaultDict(); return bigDict().size(); }
+float lastOutOfVocabularyRate() { return g_words ? float(g_oovWords) / float(g_words) : 0.0f; }
+
 std::vector<std::string> wordToPhonemes(const std::string& wordIn) {
     if (wordIn.size() > 2 && wordIn.front() == '[' && wordIn.back() == ']') {
         auto v = split(wordIn.substr(1, wordIn.size() - 2)); for (auto& p : v) for (auto& c : p) c = char(std::toupper((unsigned char)c)); return v;
     }
     std::string w; for (char c : wordIn) { if (std::isalpha((unsigned char)c) || c == '\'') w += char(std::tolower((unsigned char)c)); }
     if (w.empty()) return {};
+    ensureDefaultDict();
+    { auto it = bigDict().find(w); if (it != bigDict().end()) return split(it->second); }
     auto it = lexicon().find(w);
     if (it != lexicon().end()) return split(it->second);
+    ++g_oovWords;
     // plural / past / -ing of a lexicon word
     if (w.size() > 3) {
         if (w.back() == 's' && lexicon().count(w.substr(0, w.size() - 1))) { auto v = split(lexicon().at(w.substr(0, w.size() - 1))); v.push_back((v.back() == "T" || v.back() == "K" || v.back() == "P" || v.back() == "F") ? "S" : "Z"); return v; }
@@ -237,8 +277,9 @@ std::vector<std::string> wordToPhonemes(const std::string& wordIn) {
 std::vector<TranscriptWord> transcriptToPhonemes(const std::string& text) {
     static const char* digits[] = {"zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"};
     std::vector<TranscriptWord> words;
+    g_oovWords = 0; g_words = 0;
     std::string cur; bool inBracket = false;
-    auto flush = [&]() { if (!cur.empty()) { TranscriptWord tw; tw.text = cur; tw.phones = wordToPhonemes(cur); if (!tw.phones.empty()) words.push_back(tw); cur.clear(); } };
+    auto flush = [&]() { if (!cur.empty()) { TranscriptWord tw; tw.text = cur; ++g_words; tw.phones = wordToPhonemes(cur); if (!tw.phones.empty()) words.push_back(tw); cur.clear(); } };
     for (char c : text) {
         if (c == '[') { flush(); inBracket = true; cur += c; continue; }
         if (c == ']') { cur += c; inBracket = false; flush(); continue; }

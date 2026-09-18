@@ -48,6 +48,12 @@ TEST_CASE("G2P: lexicon words, rules, plurals, bracketed ARPAbet, digits") {
     CHECK(wordToPhonemes("shape") == std::vector<std::string>{"SH", "EY", "P"});
     auto t = transcriptToPhonemes("Hello, 2 mouths!");
     REQUIRE(t.size() == 3); CHECK(t[1].text == "two"); CHECK(t[2].phones.front() == "M");
+    // CMUdict (assets/lexicon) covers words the rules would get wrong.
+    CHECK(pronunciationDictionarySize() > 100000);
+    CHECK(wordToPhonemes("colonel") == std::vector<std::string>{"K", "ER", "N", "AH", "L"});
+    CHECK(wordToPhonemes("choir") == std::vector<std::string>{"K", "W", "AY", "ER"});
+    transcriptToPhonemes("the quick brown fox zxqvw");
+    CHECK(lastOutOfVocabularyRate() == Approx(0.2f));
 }
 
 TEST_CASE("forced alignment recovers the phrase order and silences on synthetic speech") {

@@ -17,11 +17,12 @@ namespace fr {
 /// are the boundaries. Emission scores are log posteriors with a temperature; the duration prior
 /// is a per-viseme min/typical length (frames) implemented with a left-to-right state chain.
 struct AlignmentSettings {
-    float temperature = 1.0f;          ///< softens the posteriors (>1 = trust the classifier less)
+    float temperature = 0.7f;          ///< softens the posteriors (>1 = trust the classifier less)
     float silenceLoudness = 0.08f;     ///< loudness below which the silence model fires strongly
     double minPhoneSec = 0.03;         ///< minimum phone duration
     double typicalPhoneSec = 0.08;     ///< duration prior centre (per phone)
     bool optionalSilenceBetweenWords = true;
+    float deletionPenalty = 6.0f;      ///< nats charged for skipping a dictionary phone (reductions / elisions); <0 forbids deletion
 };
 
 struct AlignedPhone {

@@ -12,6 +12,15 @@ namespace fr {
 /// e.g. "[HH AH L OW]", are passed through verbatim.
 std::vector<std::string> wordToPhonemes(const std::string& word);
 
+/// Loads a pronunciation dictionary (CMUdict, "word<TAB>PH PH PH" per line, stress optional) that
+/// takes precedence over the built-in lexicon + rules. assets/lexicon/cmudict.tsv (126k words,
+/// BSD licence) is loaded automatically on first use when FR_ASSET_DIR is available; returns the
+/// number of entries (0 on failure). Thread-safety: call before concurrent G2P use.
+size_t loadPronunciationDictionary(const std::string& path);
+size_t pronunciationDictionarySize();
+/// Fraction of words in the last transcriptToPhonemes() call that had to fall back to rules.
+float lastOutOfVocabularyRate();
+
 struct TranscriptWord { std::string text; std::vector<std::string> phones; };
 /// Tokenises free text into words (punctuation stripped, digits spelled out 0-9) and converts each.
 std::vector<TranscriptWord> transcriptToPhonemes(const std::string& text);

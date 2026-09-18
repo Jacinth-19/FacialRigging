@@ -125,22 +125,43 @@ std::vector<VisemeSegment> segmentVisemes(const std::vector<VisemeFrame>& frames
 }
 
 Viseme phonemeToViseme(const std::string& phIn) {
+    // Canonical phone -> viseme table, shared by the trainer (tools/train_visemes.cpp), the G2P /
+    // aligner and the TIMIT evaluation so posteriors and transcript classes agree. Input may be
+    // ARPAbet (any case, optional stress digit) or TIMIT (closures, reduced vowels).
     std::string p; for (char c : phIn) if (!std::isdigit((unsigned char)c)) p += char(std::toupper((unsigned char)c));
     static const struct { const char* ph; Viseme v; } table[] = {
-        {"AA", Viseme::AA}, {"AE", Viseme::AA}, {"AH", Viseme::AA}, {"AY", Viseme::AA}, {"AW", Viseme::AA},
-        {"EH", Viseme::EE}, {"EY", Viseme::EE}, {"IY", Viseme::EE}, {"Y", Viseme::EE},
-        {"IH", Viseme::IH}, {"ER", Viseme::IH}, {"AX", Viseme::IH}, {"HH", Viseme::IH},
-        {"AO", Viseme::OH}, {"OW", Viseme::OH}, {"OY", Viseme::OH},
-        {"UW", Viseme::UW}, {"UH", Viseme::UW}, {"W", Viseme::UW}, {"R", Viseme::UW},
-        {"M", Viseme::MBP}, {"B", Viseme::MBP}, {"P", Viseme::MBP},
+        // silence / non-speech
+        {"SIL", Viseme::Silence}, {"SP", Viseme::Silence}, {"H#", Viseme::Silence}, {"PAU", Viseme::Silence}, {"EPI", Viseme::Silence}, {"", Viseme::Silence},
+        // open / neutral vowels + glottals
+        {"AA", Viseme::AA}, {"AO", Viseme::AA}, {"AH", Viseme::AA}, {"AX", Viseme::AA}, {"AX-H", Viseme::AA}, {"AY", Viseme::AA}, {"AW", Viseme::AA}, {"HH", Viseme::AA}, {"HV", Viseme::AA}, {"Q", Viseme::AA},
+        // spread vowels
+        {"IY", Viseme::EE}, {"EY", Viseme::EE}, {"Y", Viseme::EE},
+        // lax / mid vowels and the lingual consonants whose lip shape is neutral
+        {"IH", Viseme::IH}, {"IX", Viseme::IH}, {"EH", Viseme::IH}, {"AE", Viseme::IH}, {"AXR", Viseme::IH}, {"ER", Viseme::IH},
+        {"K", Viseme::IH}, {"G", Viseme::IH}, {"NG", Viseme::IH}, {"ENG", Viseme::IH}, {"N", Viseme::IH}, {"NX", Viseme::IH}, {"EN", Viseme::IH},
+        {"T", Viseme::IH}, {"D", Viseme::IH}, {"DX", Viseme::IH}, {"S", Viseme::IH}, {"Z", Viseme::IH},
+        // rounded
+        {"OW", Viseme::OH}, {"OY", Viseme::OH}, {"R", Viseme::OH},
+        {"UW", Viseme::UW}, {"UX", Viseme::UW}, {"UH", Viseme::UW}, {"W", Viseme::UW}, {"SH", Viseme::UW}, {"ZH", Viseme::UW}, {"CH", Viseme::UW}, {"JH", Viseme::UW},
+        // bilabial / labiodental
+        {"M", Viseme::MBP}, {"EM", Viseme::MBP}, {"B", Viseme::MBP}, {"P", Viseme::MBP}, {"BCL", Viseme::MBP}, {"PCL", Viseme::MBP},
         {"F", Viseme::FV}, {"V", Viseme::FV},
-        {"L", Viseme::L_TH}, {"TH", Viseme::L_TH}, {"DH", Viseme::L_TH}, {"T", Viseme::L_TH}, {"D", Viseme::L_TH},
-        {"N", Viseme::L_TH}, {"S", Viseme::IH}, {"Z", Viseme::IH}, {"SH", Viseme::UW}, {"ZH", Viseme::UW},
-        {"CH", Viseme::UW}, {"JH", Viseme::UW}, {"K", Viseme::IH}, {"G", Viseme::IH}, {"NG", Viseme::IH},
-        {"SIL", Viseme::Silence}, {"SP", Viseme::Silence}, {"", Viseme::Silence},
+        // tongue-visible
+        {"L", Viseme::L_TH}, {"EL", Viseme::L_TH}, {"TH", Viseme::L_TH}, {"DH", Viseme::L_TH},
     };
     for (auto& e : table) if (p == e.ph) return e.v;
+    // TIMIT stop closures take the shape of their release
+    if (p == "TCL" || p == "DCL" || p == "KCL" || p == "GCL") return Viseme::IH;
     return Viseme::IH;
+}
+
+/// Tongue-tip targets that are *not* implied by the viseme class alone (alveolars share the IH
+/// lip shape but lift the tongue tip). Used by the aligner to add tongue motion per phone.
+float phonemeTongueUp(const std::string& phIn) {
+    std::string p; for (char c : phIn) if (!std::isdigit((unsigned char)c)) p += char(std::toupper((unsigned char)c));
+    if (p == "T" || p == "D" || p == "N" || p == "DX" || p == "EN" || p == "NX" || p == "TCL" || p == "DCL") return 0.8f;
+    if (p == "S" || p == "Z") return 0.35f;
+    return 0.0f;
 }
 
 } // namespace fr

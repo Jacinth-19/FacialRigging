@@ -119,6 +119,23 @@ the official TEST set **77.5 %** (majority-class baseline 34.7 %); confusion mat
 subsets (then it holds out 20 % of speakers). The `.frvm` format is plain C++ so the trained
 model runs in every build; `FR_WITH_TORCH` additionally allows TorchScript `.pt` models.
 
+### Transcript-driven alignment, co-articulation, idle motion
+
+- **Forced alignment.** Give the pipeline the spoken text (`Pipeline::transcript`) and the phone
+  sequence is produced by `src/audio/g2p.*` — the **CMU Pronouncing Dictionary** shipped in
+  `assets/lexicon/cmudict.tsv` (126 k words, BSD) with letter-to-sound rules for out-of-vocabulary
+  words (`lastOutOfVocabularyRate()`), bracketed ARPAbet `[HH AH L OW]` pass-through and digit
+  spelling — then Viterbi-aligned to the trained mapper's posteriors (`PhonemeAligner`, duration
+  priors, optional silences between words, penalised phone deletions). Benchmark it with
+  `fr_eval_alignment <TIMIT>/TEST/DR1 [--gt-phones] [--temp T] [--typ S]` (built with the trainer):
+  on DR1 (88 utterances) text-driven alignment reaches 65.9 % frame viseme accuracy with a
+  **median boundary error of 14 ms** vs the hand labels.
+- **Co-articulation.** Viseme targets are blended with Cohen–Massaro dominance functions
+  (`src/anim/coarticulation.*`), so bilabials win over neighbouring vowels and lips round ahead of `UW`.
+- **Idle motion.** Blinks are a Weibull renewal process (mean 3 s while speaking / 4.5 s listening,
+  extra blink at pause onsets, occasional double blinks) plus breathing (`src/anim/idle_motion.*`).
+- **Tongue.** ICT-style heads with a tongue part get a `Tongue` bone under `Jaw`; `L/T/D/N/TH` phones raise it.
+
 ### Performance layer, expressions, gaze
 
 - **Eye bones + look-at.** Models with separate `EyeL`/`EyeR` parts (ICT head) get `EyeL`/`EyeR`

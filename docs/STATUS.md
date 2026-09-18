@@ -39,6 +39,7 @@
 | ARKit 52 CSV + Live Link | ✅ `src/export/arkit_livelink.*`: mapping (50/52 on ICT), 60 fps mocap CSV writer/reader, Live Link Face UDP sender; GUI stream panel, `--format csv`, `--livelink` | Mapping is name-based; no calibration against a real capture yet |
 | Audio in exports | ✅ `.wav` sidecar + offsets (glTF `asset.extras.audio`, `.audio.json` manifests), `--embed-audio` buffer view in `.glb` | FBX has no audio container; manifest only |
 | Project files | ✅ `.frproj` (`src/app/project.*`): paths, orientation, settings, handles, painted skin, user/corrective shapes, pose, clip; GUI + CLI | Undo history is not persisted |
+| PBR-ish skin preview | ✅ shade mode 5: part materials, wrap-SSS + red bleed, GGX, analytic IBL, eye iris/catch-light, occlusion-shell pass, ACES; *Skin look* menu | Texture maps (albedo/normal) not loaded yet |
 | Audio encryption at rest | ❌ | Only needed once recordings are persisted |
 
 ## Running here (sandbox, no GPU / no X11)

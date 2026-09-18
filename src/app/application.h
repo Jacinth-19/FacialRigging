@@ -50,6 +50,9 @@ public:
         int rigTab = -1;                  ///< Face Rig tab to open (0 handles, 1 weights, 2 correctives, 3 shapes, 4 bones)
         int paintBone = -1;
         int keysDemoChannel = 0;          ///< --keys-demo: channel index to show (0 = JawOpen; larger = bone axes)
+        glm::vec3 lookAt{0.0f}; bool haveLookAt = false;   ///< --look-at x y z: camera target (mesh space)
+        float zoom = 1.0f;                ///< camera distance multiplier at start (<1 = closer)
+        bool clean = false;               ///< hide handles / bones / labels (review renders)
         bool keysDemo = false;            ///< seed a few key-layer keys on JawOpen + Head X and open the timeline in key mode (screenshots/tests)
         bool paintDemo = false;           ///< with paintBone: apply a scripted brush stroke across the cheek (headless demo/test)               ///< select the paint tool on this bone at start (screenshots / demos)
         std::string emotion;              ///< performance-layer emotion preset for generation

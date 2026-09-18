@@ -64,7 +64,7 @@ int Application::run() {
     if (!opts_.transcript.empty()) pipe.transcript = opts_.transcript;
     if (opts_.headMotion >= 0) pipe.lipSync.headMotion = opts_.headMotion;
     if (opts_.gazeMotion >= 0) pipe.lipSync.gazeMotion = opts_.gazeMotion;
-    meshRenderer.shadeMode = MeshRenderer::ShadeMode(std::clamp(opts_.shadeMode, 0, 4));
+    meshRenderer.shadeMode = MeshRenderer::ShadeMode(std::clamp(opts_.shadeMode, 0, 5));
     msaaSamples = opts_.msaa;
     if (!opts_.projectPath.empty() && loadProject(opts_.projectPath)) { projectLoadedOnStart = true; } else
     loadModel(opts_.modelPath);
@@ -80,6 +80,8 @@ int Application::run() {
     if (opts_.live) toggleLive();
     if (opts_.startStep >= 0) setStep(opts_.startStep);
     if (opts_.rigTab >= 0) setRigTab(opts_.rigTab);
+    camera.distance *= opts_.zoom; if (opts_.haveLookAt) camera.target = opts_.lookAt;
+    if (opts_.clean) showBones = showPoints = showLabels = false;
     if (opts_.keysDemo && pipe.clip.duration > 0) {
         KeyLayer& L = pipe.clip.keyLayer; const float d = pipe.clip.duration;
         KeyCurve& j = L.get(shapes::JawOpen); j.addKey(0.30f * d, 0.0f); j.addKey(0.40f * d, 0.35f); j.addKey(0.50f * d, 0.0f); j.setTangentMode(1, TangentMode::Flat);
@@ -237,7 +239,7 @@ void Application::handleViewportInput() {
             if (ImGui::IsKeyPressed(ImGuiKey_RightBracket)) brush.radius = std::min(2.0f, brush.radius * 1.25f);
         }
         if (ImGui::IsKeyPressed(ImGuiKey_Space) && pipe.clip.duration > 0) playing = !playing;
-        for (int k = 0; k < 5; ++k) if (ImGui::IsKeyPressed(ImGuiKey(int(ImGuiKey_1) + k))) meshRenderer.shadeMode = MeshRenderer::ShadeMode(k);
+        for (int k = 0; k < 6; ++k) if (ImGui::IsKeyPressed(ImGuiKey(int(ImGuiKey_1) + k))) meshRenderer.shadeMode = MeshRenderer::ShadeMode(k);
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z)) undo();
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S) && pipe.rig.mesh.vertexCount() > 0) saveProject("out/session.frproj");
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Y)) redo();

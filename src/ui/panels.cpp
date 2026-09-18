@@ -116,6 +116,18 @@ void menuBar(Application& app) {
             if (ImGui::MenuItem("Shading: Bone weights", "3", sm == SM::BoneWeights)) sm = SM::BoneWeights;
             if (ImGui::MenuItem("Shading: Blendshape influence", "4", sm == SM::ShapeInfluence)) sm = SM::ShapeInfluence;
             if (ImGui::MenuItem("Shading: Displacement", "5", sm == SM::Displacement)) sm = SM::Displacement;
+            if (ImGui::MenuItem("Shading: Skin (PBR, SSS, IBL)", "6", sm == SM::Skin)) sm = SM::Skin;
+            if (ImGui::BeginMenu("Skin look")) {
+                auto& lk = app.meshRenderer.look;
+                ImGui::SliderFloat("Exposure", &lk.exposure, 0.2f, 3.0f); ImGui::SliderFloat("Subsurface", &lk.sss, 0.0f, 1.0f); ImGui::SliderFloat("Environment", &lk.ibl, 0.0f, 1.5f);
+                ImGui::Checkbox("ACES tone mapping", &lk.aces);
+                ImGui::ColorEdit3("Skin tint", &app.meshRenderer.baseColor.x, ImGuiColorEditFlags_NoInputs);
+                float yaw = glm::degrees(std::atan2(lk.keyDir.x, lk.keyDir.z)), pitch = glm::degrees(std::asin(std::clamp(lk.keyDir.y / glm::length(lk.keyDir), -1.0f, 1.0f)));
+                bool ch = ImGui::SliderFloat("Key yaw", &yaw, -180.0f, 180.0f); ch |= ImGui::SliderFloat("Key pitch", &pitch, -30.0f, 85.0f);
+                if (ch) { float p = glm::radians(pitch), y = glm::radians(yaw); lk.keyDir = glm::vec3(std::cos(p) * std::sin(y), std::sin(p), std::cos(p) * std::cos(y)); }
+                float kelvin = lk.keyColor.b / std::max(lk.keyColor.r, 1e-3f); if (ImGui::SliderFloat("Key warmth", &kelvin, 0.6f, 1.2f, "b/r %.2f")) lk.keyColor = glm::vec3(2.6f, 2.6f * (0.5f + 0.5f * kelvin), 2.6f * kelvin);
+                ImGui::EndMenu();
+            }
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Help")) {

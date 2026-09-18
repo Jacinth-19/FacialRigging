@@ -4,6 +4,7 @@ layout(location = 0) in vec3 inPos;
 layout(location = 1) in vec3 inNormal;
 layout(location = 2) in ivec4 inBoneIDs;
 layout(location = 3) in vec4 inWeights;
+layout(location = 4) in float inMaterial;   // 0 skin, 1 eye, 2 teeth, 3 tongue, 4 hair (brows/lashes), 5 gums, 6 eye shadow
 
 #define MAX_BONES 32
 #define MAX_SHAPES 80
@@ -27,10 +28,12 @@ uniform float u_HeatScale;             // displacement -> [0,1] scale for modes 
 out vec3 vNormal;
 out vec3 vWorldPos;
 out float vHeat;
+out float vMaterial;
 
 void main() {
     vec3 pos = inPos;
     vHeat = 0.0;
+    vMaterial = inMaterial;
     if (u_ShadeMode == 2) {
         vHeat = (inBoneIDs.x == u_HeatBone ? inWeights.x : 0.0) + (inBoneIDs.y == u_HeatBone ? inWeights.y : 0.0)
               + (inBoneIDs.z == u_HeatBone ? inWeights.z : 0.0) + (inBoneIDs.w == u_HeatBone ? inWeights.w : 0.0);

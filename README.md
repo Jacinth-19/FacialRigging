@@ -177,6 +177,17 @@ model runs in every build; `FR_WITH_TORCH` additionally allows TorchScript `.pt`
   lip-sync settings, every handle, painted skin weights, baked and corrective shapes, bone pose and
   the edited clip. Opening one re-runs the import, rebuilds the rig and replays the edits.
 
+### Skin shading (View ▸ Shading: Skin, key `6`)
+
+`shaders/face.frag` mode 5 is a PBR-ish skin look tuned for previews rather than a texture pipeline:
+per-part **materials** derived from the mesh groups (skin, wet cornea with a procedural iris /
+pupil / catch-light, teeth, gums, tongue, lash cards; the ICT "EyeShadow" occlusion shells are drawn
+last as translucent darkening so the eyeballs read as seated under the lids), **wrap-lighting SSS**
+with a pre-integrated red terminator bleed, two-lobe GGX specular, an analytic **studio IBL**
+(irradiance + roughness-blurred reflections), key / fill / rim lights and **ACES** tone mapping.
+*View ▸ Skin look* exposes exposure, subsurface, environment, key direction / warmth and tint.
+Headless: `--shade 5 --clean --zoom 0.4 [--look-at x y z]` for review renders.
+
 ### Timeline editor
 
 On *Check Animation* a dope-sheet opens under the viewport: a time ruler, an **Audio** waveform lane

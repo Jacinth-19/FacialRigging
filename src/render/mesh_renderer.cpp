@@ -1,5 +1,6 @@
 #include "render/mesh_renderer.h"
 #include <algorithm>
+#include <cctype>
 
 namespace fr {
 
@@ -7,10 +8,10 @@ MeshRenderer::~MeshRenderer() { destroy(); }
 
 void MeshRenderer::destroy() {
     if (vao_) glDeleteVertexArrays(1, &vao_);
-    GLuint bufs[] = {vboPos_, vboNrm_, vboBone_, vboWeight_, ebo_};
-    glDeleteBuffers(5, bufs);
+    GLuint bufs[] = {vboPos_, vboNrm_, vboBone_, vboWeight_, vboMat_, ebo_};
+    glDeleteBuffers(6, bufs);
     if (shapeTex_) glDeleteTextures(1, &shapeTex_);
-    vao_ = vboPos_ = vboNrm_ = vboBone_ = vboWeight_ = ebo_ = shapeTex_ = 0;
+    vao_ = vboPos_ = vboNrm_ = vboBone_ = vboWeight_ = vboMat_ = ebo_ = shapeTex_ = 0;
 }
 
 bool MeshRenderer::init(const std::string& dir, std::string* log) {
@@ -38,6 +39,29 @@ void MeshRenderer::upload(const Rig& rig) {
     glGenBuffers(1, &vboWeight_); glBindBuffer(GL_ARRAY_BUFFER, vboWeight_);
     glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(weights.size() * sizeof(glm::vec4)), weights.data(), GL_STATIC_DRAW);
     glEnableVertexAttribArray(3); glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, 0, nullptr);
+    // material ids from the named parts (eyeballs, teeth, tongue, brows/lashes, gums, eye shadow)
+    std::vector<float> mat(m.vertexCount(), 0.0f);
+    {
+        auto lower = [](std::string s) { for (auto& c : s) c = char(std::tolower((unsigned char)c)); return s; };
+        for (size_t pi = 0; pi < m.parts.size(); ++pi) {
+            std::string n = lower(m.parts[pi].name); float id = 0.0f;
+            const bool brow = n.find("brow") != std::string::npos, lash = n.find("lash") != std::string::npos, lid = n.find("lid") != std::string::npos;
+            if (lash || n.find("hair") != std::string::npos || n.find("beard") != std::string::npos) id = 4.0f;
+            else if (n.find("shadow") != std::string::npos || n.find("occlusion") != std::string::npos || n.find("lacrimal") != std::string::npos || n.find("eyeblend") != std::string::npos) id = 6.0f; // translucent shells over the eyeball
+            else if (brow || lid) id = 0.0f;   // surface patches on the ICT head: plain skin
+            else if (n.find("eye") != std::string::npos || n.find("cornea") != std::string::npos || n.find("sclera") != std::string::npos) id = 1.0f;
+            else if (n.find("teeth") != std::string::npos || n.find("tooth") != std::string::npos) id = 2.0f;
+            else if (n.find("tongue") != std::string::npos) id = 3.0f;
+            else if (n.find("gum") != std::string::npos) id = 5.0f;
+            if (id > 0.0f) for (uint32_t v : m.partVertices(int(pi))) mat[v] = id;
+        }
+    }
+    opaqueRanges_.clear(); shellRanges_.clear();
+    if (m.parts.empty()) opaqueRanges_.push_back({0, GLsizei(m.indices.size())});
+    else for (const MeshPart& P : m.parts) { if (!P.indexCount) continue; bool shell = mat[m.indices[P.firstIndex]] == 6.0f; (shell ? shellRanges_ : opaqueRanges_).push_back({GLint(P.firstIndex), GLsizei(P.indexCount)}); }
+    glGenBuffers(1, &vboMat_); glBindBuffer(GL_ARRAY_BUFFER, vboMat_);
+    glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(mat.size() * sizeof(float)), mat.data(), GL_STATIC_DRAW);
+    glEnableVertexAttribArray(4); glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, 0, nullptr);
     glGenBuffers(1, &ebo_); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo_);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, GLsizeiptr(m.indices.size() * sizeof(uint32_t)), m.indices.data(), GL_STATIC_DRAW);
     glBindVertexArray(0);
@@ -83,7 +107,9 @@ void MeshRenderer::draw(const Rig& rig, const glm::mat4& view, const glm::mat4& 
     shader_.set("u_Model", glm::mat4(1.0f)); shader_.set("u_View", view); shader_.set("u_Proj", proj);
     shader_.set("u_CameraPos", camPos); shader_.set("u_BaseColor", baseColor);
     shader_.set("u_VertexCount", vertexCount_);
-    shader_.set("u_ShadeMode", int(shadeMode)); shader_.set("u_HeatBone", heatBone); shader_.set("u_HeatShape", heatShape); shader_.set("u_HeatScale", heatScale);
+    shader_.set("u_ShadeMode", int(shadeMode));
+    shader_.set("u_KeyDir", look.keyDir); shader_.set("u_KeyColor", look.keyColor); shader_.set("u_Exposure", look.exposure);
+    shader_.set("u_SssAmount", look.sss); shader_.set("u_IblAmount", look.ibl); shader_.set("u_ToneMap", look.aces ? 1 : 0); shader_.set("u_HeatBone", heatBone); shader_.set("u_HeatShape", heatShape); shader_.set("u_HeatScale", heatScale);
     // Heat modes 3/4 need the GPU deform inputs even when positions came from the CPU.
     if (usedCpu_ && (shadeMode == ShadeMode::ShapeInfluence || shadeMode == ShadeMode::Displacement)) usedCpu_ = false;
     if (usedCpu_) {
@@ -111,7 +137,14 @@ void MeshRenderer::draw(const Rig& rig, const glm::mat4& view, const glm::mat4& 
     glBindVertexArray(vao_);
     glEnable(GL_DEPTH_TEST); glDepthFunc(GL_LEQUAL); glEnable(GL_CULL_FACE);
     shader_.set("u_Wireframe", 0);
-    glDrawElements(GL_TRIANGLES, indexCount_, GL_UNSIGNED_INT, nullptr);
+    for (auto& r : opaqueRanges_) glDrawElements(GL_TRIANGLES, r.second, GL_UNSIGNED_INT, (const void*)(uintptr_t(r.first) * sizeof(uint32_t)));
+    if (!shellRanges_.empty() && shadeMode != ShadeMode::BoneWeights && shadeMode != ShadeMode::ShapeInfluence && shadeMode != ShadeMode::Displacement) {
+        // eye occlusion / tear-line shells: translucent darkening so the eyeball reads as seated under the lids
+        glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); glDepthMask(GL_FALSE);
+        shader_.set("u_Wireframe", 2);
+        for (auto& r : shellRanges_) glDrawElements(GL_TRIANGLES, r.second, GL_UNSIGNED_INT, (const void*)(uintptr_t(r.first) * sizeof(uint32_t)));
+        glDepthMask(GL_TRUE); glDisable(GL_BLEND);
+    }
     if (wireframe && glPolygonMode) { // glPolygonMode does not exist on OpenGL ES
         glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE); glEnable(GL_POLYGON_OFFSET_LINE); glPolygonOffset(-1.0f, -1.0f);

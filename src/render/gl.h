@@ -131,6 +131,7 @@ typedef double GLdouble; typedef short GLshort; typedef unsigned short GLushort;
   X(void, glEnable, GLenum) \
   X(void, glDisable, GLenum) \
   X(void, glDepthFunc, GLenum) \
+  X(void, glDepthMask, GLboolean) \
   X(void, glBlendFunc, GLenum, GLenum) \
   X(void, glViewport, GLint, GLint, GLsizei, GLsizei) \
   X(void, glPolygonOffset, GLfloat, GLfloat) \

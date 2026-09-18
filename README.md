@@ -150,6 +150,24 @@ with the margin over neutral: *Performance layer > Emotion from audio (auto)* / 
 the preset before baking, and the Microphone tab runs the head on a rolling 3 s window once a second
 (probability-smoothed) to drive the live face.
 
+### Speaker-adaptive calibration
+
+`src/audio/speaker_profile.cpp` builds a **speaker profile** from a short recording (≥ 3 s of speech,
+10 s recommended): per-dimension mean / std of the 17-dim frame vector, pitch median and a loudness
+reference. `adaptModel()` blends those statistics into the shipped MLP's input normalisation (CMVN
+style, `strength` 0 – 1, std change clamped to 0.5–2×, loudness / voicing / centroid keep the global
+scale). If the transcript of the recording is known - the GUI shows a fixed calibration sentence that
+covers every viseme class - the sentence is forced-aligned with the *unadapted* mapper and the last
+layer is fine-tuned on the resulting labels (20 Adam steps, class-balanced, L2-anchored to the original
+weights), stored in the profile as `lastW/lastB`. Profiles are JSON, saved inside `.frproj`, and
+`fr_cli --calibrate cal.wav --calibrate-text "…" --save-speaker me.json` / `--speaker me.json` use them
+headlessly. `build/fr_eval_speaker --data data/timit/TEST` calibrates on each speaker's SA1+SA2 and
+scores SI/SX: 168 speakers, unadapted 67.40 % → 67.52 % with statistics (90/168 speakers improve),
+67.44 % with fine-tune; the defaults (strength 0.3, anchored 20-step fine-tune) were picked from that
+sweep - strength 1.0 or unanchored fine-tune *lose* 4–9 points, which is why the slider defaults low.
+In the Microphone tab, *Calibrate* records the ring buffer for N seconds, calibrates, and swaps the
+adapted mapper into the live path.
+
 ### Microphone conditioning and latency
 
 `src/audio/mic_conditioner.cpp` runs on the audio thread in front of the live ring buffer: 80 Hz

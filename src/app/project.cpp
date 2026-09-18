@@ -42,7 +42,7 @@ bool saveProject(const std::string& path, const Pipeline& pipe, const ProjectSav
     o << " \"model\":{\"path\":" << str(rel(pipe.modelPath, base, opts.relativePaths)) << ",\"upAxis\":" << int(pipe.modelUpAxis)
       << ",\"userRotation\":" << m3(pipe.userRotation) << ",\"userTranslation\":" << v3(pipe.userTranslation) << "},\n";
     o << " \"audio\":{\"path\":" << str(rel(pipe.audioPath, base, opts.relativePaths)) << ",\"transcript\":" << str(pipe.transcript) << "},\n";
-    o << " \"mapper\":{\"kind\":" << (pipe.mapperKind == Pipeline::MapperKind::Ml ? "\"ml\"" : "\"rules\"") << ",\"model\":" << str(pipe.mlModelPath) << "},\n";
+    o << " \"mapper\":{\"kind\":" << (pipe.mapperKind == Pipeline::MapperKind::Ml ? "\"ml\"" : "\"rules\"") << ",\"model\":" << str(pipe.mlModelPath) << ",\"speaker\":" << (pipe.speaker.valid ? pipe.speaker.toJson() : std::string("null")) << "},\n";
     o << " \"lipSync\":{\"frameRate\":" << num(ls.frameRate) << ",\"intensity\":" << num(ls.intensity) << ",\"jawFromLoudness\":" << num(ls.jawFromLoudness) << ",\"browFromPitch\":" << num(ls.browFromPitch)
       << ",\"smileBias\":" << num(ls.smileBias) << ",\"smoothing\":" << ls.smoothingRadiusFrames << ",\"coarticulation\":" << (ls.coarticulation.enabled ? "true" : "false")
       << ",\"tongue\":" << num(ls.tongue) << ",\"jawBoneDegrees\":" << num(ls.jawBoneDegrees) << ",\"jawShapeScale\":" << num(ls.jawShapeScale)
@@ -125,7 +125,7 @@ bool loadProject(const std::string& path, Pipeline& pipe, std::string* error) {
     struct BonePose { std::string bone; glm::quat q{1, 0, 0, 0}; glm::vec3 t{0}; };
     struct UserShape { std::string name; std::vector<float> idx, deltas; };
     struct Comb { std::string shape, a, b; float gain = 1; bool mn = false; };
-    std::string modelPath, audioPath, transcript, mapperKind = "rules", mlModel; int upAxis = 0; glm::mat3 userRot(1.0f); glm::vec3 userTrans(0);
+    std::string modelPath, audioPath, transcript, mapperKind = "rules", mlModel; SpeakerProfile speakerProfile; int upAxis = 0; glm::mat3 userRot(1.0f); glm::vec3 userTrans(0);
     std::vector<CP> cps; std::vector<BonePose> poses; std::vector<std::pair<std::string, float>> weights; std::vector<UserShape> userShapes; std::vector<Comb> combs;
     std::vector<std::string> skinBones; std::vector<float> skinInf; bool haveSkin = false, skinFirst = true, forceSym = false;
     bool haveClip = false; AnimationClip clip;
@@ -150,6 +150,7 @@ bool loadProject(const std::string& path, Pipeline& pipe, std::string* error) {
         });
         if (k == "mapper") return objEach(p, [&](const std::string& mk) { if (mk == "kind") return p.str(mapperKind);
         if (mk == "model") return p.str(mlModel);
+        if (mk == "speaker") { size_t start = p.i; p.ws(); if (!p.skipValue()) return false; std::string sub = p.s.substr(start, p.i - start); if (sub.find('{') != std::string::npos) { std::string e; speakerProfile.fromJson(sub.substr(sub.find('{')), &e); } return true; }
         return p.skipValue();
         });
         if (k == "lipSync") return objEach(p, [&](const std::string& lk) {
@@ -275,7 +276,7 @@ bool loadProject(const std::string& path, Pipeline& pipe, std::string* error) {
     if (!pipe.loadModel(abs(modelPath, base), &err)) { if (error) *error = "model: " + err; return false; }
     if (userRot != glm::mat3(1.0f)) pipe.transformModel(userRot);
     if (glm::dot(userTrans, userTrans) > 0) pipe.translateModel(userTrans);
-    pipe.mapperKind = mapperKind == "ml" ? Pipeline::MapperKind::Ml : Pipeline::MapperKind::RuleBased; pipe.mlModelPath = mlModel;
+    pipe.mapperKind = mapperKind == "ml" ? Pipeline::MapperKind::Ml : Pipeline::MapperKind::RuleBased; pipe.mlModelPath = mlModel; pipe.speaker = speakerProfile;
     pipe.lipSync = ls; pipe.transcript = transcript; pipe.exportAudioSidecar = audioSidecar; pipe.embedAudioInGlb = embedGlb;
     pipe.buildDefaultRig();
     Rig& r = pipe.rig; r.skinFirst = skinFirst; r.forceSymmetry = forceSym;

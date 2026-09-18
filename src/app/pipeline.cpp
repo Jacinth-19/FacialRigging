@@ -189,10 +189,41 @@ std::shared_ptr<VisemeMapper> Pipeline::makeMapper(std::string* noteOut) const {
         bool ok = false;
         if (!mlModelPath.empty()) ok = ml->load(mlModelPath, &err);
         else { ok = ml->loadDefault(assetDir.empty() ? "assets" : assetDir, &err); if (!ok) { std::string e2; ok = ml->loadBuiltin(&e2); if (!ok) err += "; " + e2; } }
+        if (ok && speaker.valid) ml->applySpeaker(speaker);
         if (ok) { if (noteOut) *noteOut = "ML viseme mapper: " + ml->modelInfo(); return ml; }
         if (noteOut) *noteOut = "ML mapper unavailable (" + err + "); using rule-based mapper";
     } else if (noteOut) *noteOut = "rule-based viseme mapper";
     return std::make_shared<VisemeMapper>();
+}
+
+bool Pipeline::calibrateFromAudio(const AudioBuffer& a, const std::string& text, const std::string& name, bool fineTune) {
+    lastCalibration = CalibrationStats{};
+    SpeakerProfile p = calibrateSpeaker(a, name, 3.0f, &lastCalibration);
+    if (!p.valid) { note("Calibration failed: " + lastCalibration.warning); return false; }
+    char buf[200]; std::snprintf(buf, sizeof buf, "Speaker profile '%s': %.1f s speech, pitch median %.0f Hz, loudness ref %.0f dBFS, SNR %.0f dB%s%s", name.c_str(), lastCalibration.seconds, p.pitchMedianHz, p.loudnessRef, lastCalibration.snrDb, lastCalibration.warning.empty() ? "" : " - ", lastCalibration.warning.c_str());
+    note(buf);
+    if (fineTune && !text.empty()) {
+        // supervised part: align the known sentence with the *unadapted* mapper, then fine-tune the last layer
+        MlVisemeMapper ml; std::string err;
+        bool ok = mlModelPath.empty() ? ml.loadDefault(assetDir.empty() ? "assets" : assetDir, &err) : ml.load(mlModelPath, &err);
+        if (ok && ml.weights().valid()) {
+            FeatureExtractor fx; FeatureTrack tr = fx.extract(a);
+            auto post = ml.map(tr);
+            PhonemeAligner aligner(alignment); AlignmentResult ar = aligner.align(text, tr, post);
+            if (!ar.segments.empty()) {
+                std::vector<int> labels(tr.frames.size(), -1);
+                for (size_t t = 0; t < tr.frames.size(); ++t) for (auto& s : ar.segments) if (tr.frames[t].time >= s.start && tr.frames[t].time < s.end) { labels[t] = int(s.viseme); break; }
+                float before = 0, after = 0;
+                if (fineTuneLastLayer(ml.weights(), p, tr, labels, 20, 5e-4f, 1.0f, &before, &after)) {
+                    std::snprintf(buf, sizeof buf, "Fine-tuned last layer on the calibration sentence: frame agreement %.0f%% -> %.0f%% (%zu phones aligned)", before * 100, after * 100, ar.phones.size());
+                    note(buf); p.fineTuneInfo = buf;
+                }
+            } else note("Calibration sentence could not be aligned - using statistics-only adaptation");
+        }
+    }
+    p.source = a.duration() > 0 ? std::to_string(int(a.duration())) + " s recording" : "";
+    speaker = p;
+    return true;
 }
 
 const EmotionClassifier* Pipeline::emotionClassifier(std::string* error) const {

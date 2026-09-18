@@ -1,6 +1,7 @@
 #pragma once
 #include "anim/animation_clip.h"
 #include "audio/emotion_classifier.h"
+#include "audio/speaker_profile.h"
 #include "audio/phoneme_aligner.h"
 #include "anim/lipsync_generator.h"
 #include "audio/features.h"
@@ -51,6 +52,14 @@ public:
     const EmotionClassifier* emotionClassifier(std::string* error = nullptr) const;
     /// Classifies the loaded audio now (does not touch lipSync). Returns lastEmotion.
     const EmotionResult& classifyEmotion();
+
+    /// Speaker-adaptive calibration: when valid, makeMapper() re-centres the MLP's input
+    /// normalisation on this speaker (and applies a fine-tuned last layer if present).
+    SpeakerProfile speaker;
+    CalibrationStats lastCalibration;
+    /// Builds `speaker` from audio (~10 s of the calibration sentence). If `transcript` is given the
+    /// sentence is force-aligned and the last layer fine-tuned on it. Returns speaker.valid.
+    bool calibrateFromAudio(const AudioBuffer& a, const std::string& transcript = "", const std::string& name = "speaker", bool fineTune = true);
 
     enum class MapperKind { RuleBased, Ml };
     MapperKind mapperKind = MapperKind::RuleBased;

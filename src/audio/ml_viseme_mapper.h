@@ -45,6 +45,9 @@ public:
     bool save(const std::string& path, std::string* error = nullptr) const;
     bool loaded() const;
     std::string modelInfo() const { return info_; }
+    const VisemeMlpWeights& weights() const { return weights_; }
+    /// Replaces the loaded portable weights with a speaker-adapted copy (see speaker_profile.h).
+    void applySpeaker(const struct SpeakerProfile& profile);
 
     std::vector<VisemeFrame> map(const FeatureTrack& track) const override;
 

@@ -135,6 +135,11 @@ public:
     LiveCapture live;
     bool liveEnabled = false; bool liveEmotion = true; EmotionResult liveEmotionResult; double liveEmotionNext_ = 0.0; std::string liveError; std::vector<float> liveWave; VisemeFrame liveViseme;
     void toggleLive(int device = -1);
+    // speaker calibration from the live microphone: records `calibSeconds` (ring buffer), then Pipeline::calibrateFromAudio.
+    bool calibRecording = false; double calibStart_ = 0.0; float calibSeconds = 10.0f; std::string calibMessage; std::string calibTranscript;
+    void startCalibration();
+    float calibProgress() const;
+    void calibTick();
     glm::ivec2 viewportSize() const { return fbSize_; }
     /// Reference media split view. `sceneRect` (window pixels, y down) is where the 3D scene is drawn; the UI sets it
     /// each frame (full viewport, or the left/top half when the reference panel is open). Rays/projection honour it.

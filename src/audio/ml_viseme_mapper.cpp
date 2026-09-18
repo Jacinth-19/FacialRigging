@@ -1,4 +1,5 @@
 #include "audio/ml_viseme_mapper.h"
+#include "audio/speaker_profile.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -73,6 +74,12 @@ bool VisemeMlpWeights::load(const std::string& path, std::string* error) {
     std::fclose(f);
     if (!ok) { if (error) *error = "truncated FRVM model: " + path; W.clear(); layerSizes.clear(); return false; }
     return true;
+}
+
+void MlVisemeMapper::applySpeaker(const SpeakerProfile& profile) {
+    if (!weights_.valid() || !profile.valid) return;
+    weights_ = adaptModel(weights_, profile);
+    info_ += " + speaker '" + profile.name + "'" + (profile.lastW.empty() ? "" : " (fine-tuned)");
 }
 
 std::vector<std::vector<float>> MlVisemeMapper::stackedFeatures(const FeatureTrack& track, int context) {

@@ -142,6 +142,7 @@ void Application::frame() {
     { int ww, wh; glfwGetWindowSize(window_, &ww, &wh); if (!referenceOpen || !reference.valid() || referenceOverlay) sceneRect = glm::vec4(0, 0, ww, wh); }
     view_ = camera.view(); proj_ = camera.projection(std::max(1.0f, sceneRect.z) / std::max(1.0f, sceneRect.w));
 
+    if (liveEnabled) calibTick();
     if (liveEnabled) {
         auto lf = live.poll();
         if (lf.valid) {
@@ -641,6 +642,26 @@ void Application::liveLinkTick() {
     if (now < liveLinkNext_) return;
     liveLinkNext_ = now + 1.0 / double(liveLink_.settings().frameRate);
     liveLink_.send(arkitFrameFromRig(pipe.rig, arkitMap_), liveLinkFrame_++);
+}
+
+// ---------------------------------------------------------------- speaker calibration
+void Application::startCalibration() {
+    if (!liveEnabled) { calibMessage = "start microphone capture first"; return; }
+    calibRecording = true; calibStart_ = glfwGetTime(); calibMessage = "recording... read the sentence aloud";
+}
+float Application::calibProgress() const { return calibRecording ? float(std::clamp((glfwGetTime() - calibStart_) / double(calibSeconds), 0.0, 1.0)) : 0.0f; }
+void Application::calibTick() {
+    if (!calibRecording || glfwGetTime() - calibStart_ < double(calibSeconds)) return;
+    calibRecording = false;
+    AudioBuffer buf; buf.sampleRate = live.sampleRate(); buf.channels = 1; buf.samples = live.recent(double(calibSeconds));
+    const std::string text = calibTranscript.empty() ? calibrationSentence() : calibTranscript;
+    bool ok = pipe.calibrateFromAudio(buf, text, "mic", true);
+    const CalibrationStats& st = pipe.lastCalibration;
+    char b[256];
+    std::snprintf(b, sizeof b, "%s  %.1f s speech, voiced %.0f%%, SNR %.0f dB, pitch %.0f Hz%s%s", ok ? "calibrated" : "failed", st.seconds, st.voicedFraction * 100, st.snrDb, pipe.speaker.pitchMedianHz, st.warning.empty() ? "" : " - ", st.warning.c_str());
+    calibMessage = b;
+    if (!pipe.speaker.fineTuneInfo.empty()) calibMessage += "\n" + pipe.speaker.fineTuneInfo;
+    if (ok) live.setMapper(pipe.makeMapper());   // live path picks up the adapted weights
 }
 
 } // namespace fr

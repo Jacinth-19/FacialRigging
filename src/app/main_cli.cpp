@@ -46,6 +46,9 @@ Options:
   --head-motion <f>         audio-driven head nods / sway 0..1 (default 0.5)
   --gaze-motion <f>         eye saccades 0..1, needs eyeball parts (default 0.5)
   --transcript "<text>"     force-align the spoken text (CMUdict + rules, [ARPAbet] allowed) to the audio
+  --calibrate <file.wav>    speaker calibration clip (>= 3 s speech): adapts the ML mapper's input normalisation
+  --calibrate-text "<text>" what is said in the calibration clip -> also fine-tunes the mapper's last layer
+  --speaker <file.json>     load a saved speaker profile;  --save-speaker <file.json> writes the calibrated one
   --clip-in <file.json>     skip generation; load a clip JSON (from --format json) and export it
   --save-audio <file.wav>   write the (synthetic) audio next to the export
   --save-model <file.obj>   write the (procedural) bind mesh as OBJ
@@ -55,7 +58,7 @@ Options:
 }
 
 int main(int argc, char** argv) {
-    std::string model, audioPath, output = "out/scene", format = "glb", saveAudio, saveModel, clipIn, project, saveProjectPath, liveLink, dumpLandmarks; float liveSpeed = 1.0f;
+    std::string model, audioPath, output = "out/scene", format = "glb", saveAudio, saveModel, clipIn, project, saveProjectPath, liveLink, dumpLandmarks, calibWav, calibText, speakerIn, speakerOut; float liveSpeed = 1.0f;
     std::vector<std::string> variationTexts;
     bool dump = false;
     Pipeline pipe;
@@ -107,6 +110,10 @@ int main(int argc, char** argv) {
         else if (a == "--clip-in") clipIn = next();
         else if (a == "--transcript") pipe.transcript = next();
         else if (a == "--emotion-model") pipe.emotionModelPath = next();
+        else if (a == "--calibrate") calibWav = next();
+        else if (a == "--calibrate-text") calibText = next();
+        else if (a == "--speaker") speakerIn = next();
+        else if (a == "--save-speaker") speakerOut = next();
         else if (a == "--landmarks") { std::string v = next(); pipe.autoLandmarks = v == "off" ? Pipeline::AutoLandmarks::Off : v == "on" ? Pipeline::AutoLandmarks::On : Pipeline::AutoLandmarks::Auto; }
         else if (a == "--dump-landmarks") dumpLandmarks = next();
         else if (a == "--save-audio") saveAudio = next();
@@ -141,6 +148,12 @@ int main(int argc, char** argv) {
         if (!loadClipsJson(clipIn, clips, &err) || clips.empty()) { std::fprintf(stderr, "error: %s\n", err.empty() ? "no clips in file" : err.c_str()); return 1; }
         pipe.clip = clips[0]; std::printf("loaded clip '%s' (%.2f s, %d frames) from %s\n", pipe.clip.name.c_str(), pipe.clip.duration, pipe.clip.frameCount(), clipIn.c_str());
     } else {
+        if (!speakerIn.empty()) { if (!pipe.speaker.load(speakerIn, &err)) { std::fprintf(stderr, "error: %s\n", err.c_str()); return 1; } std::printf("speaker profile '%s' loaded\n", pipe.speaker.name.c_str()); }
+        if (!calibWav.empty()) {
+            AudioBuffer cal; if (!loadWav(calibWav, cal, &err)) { std::fprintf(stderr, "error: %s\n", err.c_str()); return 1; }
+            pipe.calibrateFromAudio(cal, calibText, "speaker", !calibText.empty());
+            if (!speakerOut.empty() && pipe.speaker.valid) { pipe.speaker.save(speakerOut, &err); std::printf("wrote %s\n", speakerOut.c_str()); }
+        }
         if (!pipe.loadAudio(audioPath, &err)) { std::fprintf(stderr, "error: %s\n", err.c_str()); return 1; }
         if (!saveAudio.empty()) saveWav(saveAudio, pipe.audio, &err);
         if (!pipe.generateAnimation()) { std::fprintf(stderr, "error: animation generation failed\n"); return 1; }

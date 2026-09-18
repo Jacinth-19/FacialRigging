@@ -8,6 +8,7 @@
 #include "audio/viseme_mapper.h"
 #include "audio/phoneme_aligner.h"
 #include "audio/ml_viseme_mapper.h"
+#include "audio/speaker_profile.h"
 #include <algorithm>
 #include <cmath>
 #include <functional>
@@ -658,6 +659,37 @@ void pageLipSync(Application& app) {
                 ImGui::Checkbox("Emotion head (3 s window)", &app.liveEmotion); ImGui::SameLine(); ImGui::Checkbox("drive face", &app.pipe.autoEmotion);
                 if (app.liveEmotionResult.valid) ImGui::TextColored(kAccent, ICON_MD_FACE "  %s", app.liveEmotionResult.summary().c_str());
                 else if (app.liveEmotion) ImGui::TextColored(kTextDim, "emotion: waiting for speech...");
+            }
+            // --- speaker calibration
+            {
+                SectionLabel("Speaker calibration :");
+                SpeakerProfile& sp = app.pipe.speaker;
+                ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+                ImGui::TextWrapped("Read aloud while recording:");
+                ImGui::PopStyleColor();
+                ImGui::TextWrapped("\"%s\"", calibrationSentence());
+                if (app.calibRecording) {
+                    char lbl[48]; std::snprintf(lbl, sizeof lbl, "recording  %.0f / %.0f s", app.calibProgress() * app.calibSeconds, app.calibSeconds);
+                    ImGui::ProgressBar(app.calibProgress(), ImVec2(-1, 18 * S()), lbl);
+                } else {
+                    ImGui::SetNextItemWidth(110 * S()); ImGui::SliderFloat("##calsec", &app.calibSeconds, 4.0f, 10.0f, "%.0f s"); ImGui::SameLine();
+                    ImGui::BeginDisabled(!app.liveEnabled);
+                    if (PrimaryButton(ICON_MD_MIC "  Calibrate", ImVec2(-1, 26 * S()))) app.startCalibration();
+                    ImGui::EndDisabled();
+                    if (!app.liveEnabled && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Start capture first.");
+                }
+                if (!app.calibMessage.empty()) ImGui::TextWrapped("%s", app.calibMessage.c_str());
+                if (sp.valid) {
+                    ImGui::TextColored(kAccent, ICON_MD_RECORD_VOICE_OVER "  profile '%s'  pitch %.0f Hz  %.1f s%s", sp.name.c_str(), sp.pitchMedianHz, sp.secondsUsed, sp.lastW.empty() ? "" : "  (fine-tuned)");
+                    ImGui::SetNextItemWidth(-1);
+                    if (ImGui::SliderFloat("##spstr", &sp.strength, 0.0f, 1.0f, "Adaptation strength  %.2f")) app.live.setMapper(app.pipe.makeMapper());
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Blend between the global input normalisation (0) and this speaker's statistics (1). 0.3 is best on TIMIT.");
+                    if (WideButton("Save profile", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f - 4 * S(), 24 * S()))) { std::string e; app.calibMessage = sp.save("speaker_profile.json", &e) ? "saved speaker_profile.json" : "save failed: " + e; }
+                    ImGui::SameLine();
+                    if (WideButton("Clear", ImVec2(-1, 24 * S()))) { sp = SpeakerProfile{}; app.live.setMapper(app.pipe.makeMapper()); app.calibMessage.clear(); }
+                } else {
+                    if (WideButton("Load profile (speaker_profile.json)", ImVec2(-1, 24 * S()))) { std::string e; if (sp.load("speaker_profile.json", &e)) { app.live.setMapper(app.pipe.makeMapper()); app.calibMessage = "loaded profile '" + sp.name + "'"; } else app.calibMessage = "load failed: " + e; }
+                }
             }
             // --- microphone conditioning + latency
             {

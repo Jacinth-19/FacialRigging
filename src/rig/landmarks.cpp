@@ -1,4 +1,5 @@
 #include "rig/landmarks.h"
+#include "rig/landmark_cascade.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -85,15 +86,66 @@ bool lift(const FrontRender& r, glm::vec2 px, glm::vec3& out, int radius = 6) {
 glm::vec3 mean(const std::vector<glm::vec3>& p, std::initializer_list<int> idx) { glm::vec3 s(0); for (int i : idx) s += p[size_t(i)]; return s / float(idx.size()); }
 } // namespace
 
-bool landmarkerAvailable(std::string* why, const std::string& modelPath) {
+namespace {
+bool dlibAvailable(std::string* why, const std::string& modelPath) {
 #if !FR_HAVE_DLIB
-    if (why) *why = "built without dlib (FR_WITH_DLIB=OFF)";
+    (void)modelPath; (void)fileExists; (void)defaultModelPath; if (why) *why = "built without dlib (FR_WITH_DLIB=OFF)";
     return false;
 #else
     std::string mp = modelPath.empty() ? defaultModelPath() : modelPath;
-    if (!fileExists(mp)) { if (why) *why = "shape predictor not found at " + mp + " (run tools/bootstrap.sh)"; return false; }
+    if (!fileExists(mp)) { if (why) *why = "dlib shape predictor not found at " + mp + " (run tools/bootstrap.sh)"; return false; }
     return true;
 #endif
+}
+/// Fills the named landmarks of `lm` from its points68 (iBUG order), keeping -x = "L".
+void assignNamed(FaceLandmarks& lm) {
+    const auto& P = lm.points68;
+    auto leftOf = [&](int a, int b) { return P[size_t(a)].x < P[size_t(b)].x ? a : b; };
+    int cL = leftOf(48, 54), cR = cL == 48 ? 54 : 48;
+    lm.cornerL = P[size_t(cL)]; lm.cornerR = P[size_t(cR)];
+    lm.upperLip = P[51]; lm.lowerLip = P[57]; lm.mouth = 0.5f * (P[62] + P[66]);
+    lm.chin = P[8]; lm.noseTip = P[30];
+    glm::vec3 browA = mean(P, {17, 18, 19, 20, 21}), browB = mean(P, {22, 23, 24, 25, 26});
+    glm::vec3 eyeA = mean(P, {36, 37, 38, 39, 40, 41}), eyeB = mean(P, {42, 43, 44, 45, 46, 47});
+    bool aIsLeft = browA.x < browB.x;
+    lm.browL = aIsLeft ? browA : browB; lm.browR = aIsLeft ? browB : browA;
+    lm.eyeL = aIsLeft ? eyeA : eyeB; lm.eyeR = aIsLeft ? eyeB : eyeA;
+    if (aIsLeft) { lm.eyeLOuter = P[36]; lm.eyeLInner = P[39]; lm.eyeRInner = P[42]; lm.eyeROuter = P[45]; }
+    else { lm.eyeROuter = P[36]; lm.eyeRInner = P[39]; lm.eyeLInner = P[42]; lm.eyeLOuter = P[45]; }
+    if (aIsLeft) { lm.eyeL = 0.5f * (P[37] + P[38]); lm.eyeR = 0.5f * (P[43] + P[44]); } else { lm.eyeR = 0.5f * (P[37] + P[38]); lm.eyeL = 0.5f * (P[43] + P[44]); }
+}
+/// Built-in cascade path: nose-anchored box on the geometry render, SDM refinement, lift through the position buffer.
+FaceLandmarks detectBuiltin(const Mesh& mesh, const LandmarkOptions& opt) {
+    FaceLandmarks lm; std::string why;
+    const LandmarkCascade* m = LandmarkCascade::builtin(&why);
+    if (!m) { lm.note = "built-in landmark model unavailable: " + why; return lm; }
+    // whole mesh (eyeballs, teeth included) - that is what the cascade was trained on
+    GeoFaceBox box; std::vector<glm::vec2> shape; float conf = 0.0f;
+    if (!m->predict(mesh, mesh.positions, box, shape, &conf, -1)) { lm.note = "built-in: no face box (empty render)"; return lm; }
+    FrontRender full = renderFront(mesh, opt.renderSize);
+    lm.renderWidth = full.width; lm.renderHeight = full.height;
+    lm.points68.resize(68); lm.pixels68.resize(68); int off = 0;
+    for (int i = 0; i < 68; ++i) {
+        glm::vec2 xy = LandmarkCascade::toWorldXY(box, shape[size_t(i)]);
+        glm::vec2 px = full.pixelOf(glm::vec3(xy, 0.0f)); lm.pixels68[size_t(i)] = px;
+        glm::vec3 w; if (lift(full, px, w)) lm.points68[size_t(i)] = w; else { ++off; lm.points68[size_t(i)] = glm::vec3(xy, box.noseTip.z); }
+    }
+    assignNamed(lm);
+    lm.confidence = conf;
+    lm.found = conf >= opt.minConfidence;
+    char buf[200]; std::snprintf(buf, sizeof buf, "built-in cascade: confidence %.2f%s, 68 landmarks, %d lifted from background, box %.3g units at nose (%.3g, %.3g)", conf, lm.found ? "" : " (below threshold)", off, box.side, box.noseTip.x, box.noseTip.y);
+    lm.note = buf;
+    return lm;
+}
+} // namespace
+
+bool landmarkerAvailable(std::string* why, const std::string& modelPath, LandmarkEngine engine) {
+    std::string w1, w2;
+    const bool builtin = engine != LandmarkEngine::Dlib && LandmarkCascade::builtin(&w1) != nullptr;
+    const bool dl = engine != LandmarkEngine::Builtin && dlibAvailable(&w2, modelPath);
+    if (builtin || dl) return true;
+    if (why) *why = engine == LandmarkEngine::Dlib ? w2 : engine == LandmarkEngine::Builtin ? w1 : w1 + "; " + w2;
+    return false;
 }
 
 FaceLandmarks proportionalLandmarks(const Mesh& mesh) {
@@ -121,8 +173,15 @@ void symmetrize(FaceLandmarks& lm, float cx) {
 
 FaceLandmarks detectLandmarks(const Mesh& mesh, const LandmarkOptions& opt) {
     FaceLandmarks lm;
+    if (opt.engine != LandmarkEngine::Dlib) {
+        lm = detectBuiltin(mesh, opt);
+        if (lm.found || opt.engine == LandmarkEngine::Builtin) return lm;
+        std::string why; if (!dlibAvailable(&why, opt.modelPath)) return lm;   // keep the built-in diagnostics
+        lm.note += " -> falling back to dlib";
+    }
+    const std::string builtinNote = lm.note; lm = FaceLandmarks{};
 #if !FR_HAVE_DLIB
-    (void)opt; lm.note = "built without dlib"; return lm;
+    (void)opt; lm.note = builtinNote.empty() ? "built without dlib" : builtinNote; return lm;
 #else
     std::string mp = opt.modelPath.empty() ? defaultModelPath() : opt.modelPath;
     if (!fileExists(mp)) { lm.note = "shape predictor missing: " + mp; return lm; }
@@ -152,28 +211,10 @@ FaceLandmarks detectLandmarks(const Mesh& mesh, const LandmarkOptions& opt) {
             glm::vec2 px(float(shape.part(i).x()) / up, float(shape.part(i).y()) / up); lm.pixels68[i] = px;
             glm::vec3 w; if (lift(full, px, w)) lm.points68[i] = w; else { ++off; lm.points68[i] = glm::vec3(full.origin.x + px.x / full.scale, full.origin.y - px.y / full.scale, mesh.boundsMax().z); }
         }
-        const auto& P = lm.points68;
-        // iBUG-68 indices: jaw 0-16 (8 = chin), brows 17-21 (viewer-left) / 22-26, nose 27-35 (30 = tip), eyes 36-41 / 42-47,
-        // outer lips 48-59 (48 / 54 = corners, 51 top, 57 bottom), inner lips 60-67 (62 top, 66 bottom).
-        // The render looks at the face, so image-left is the character's RIGHT side... except our rig names
-        // "L" as -x (viewer left when the face looks down +z toward the camera). Keep -x = L consistently.
-        auto leftOf = [&](int a, int b) { return P[size_t(a)].x < P[size_t(b)].x ? a : b; };
-        int cL = leftOf(48, 54), cR = cL == 48 ? 54 : 48;
-        lm.cornerL = P[size_t(cL)]; lm.cornerR = P[size_t(cR)];
-        lm.upperLip = P[51]; lm.lowerLip = P[57]; lm.mouth = 0.5f * (P[62] + P[66]);
-        lm.chin = P[8]; lm.noseTip = P[30];
-        glm::vec3 browA = mean(P, {17, 18, 19, 20, 21}), browB = mean(P, {22, 23, 24, 25, 26});
-        glm::vec3 eyeA = mean(P, {36, 37, 38, 39, 40, 41}), eyeB = mean(P, {42, 43, 44, 45, 46, 47});
-        bool aIsLeft = browA.x < browB.x;
-        lm.browL = aIsLeft ? browA : browB; lm.browR = aIsLeft ? browB : browA;
-        lm.eyeL = aIsLeft ? eyeA : eyeB; lm.eyeR = aIsLeft ? eyeB : eyeA;
-        if (aIsLeft) { lm.eyeLOuter = P[36]; lm.eyeLInner = P[39]; lm.eyeRInner = P[42]; lm.eyeROuter = P[45]; }
-        else { lm.eyeROuter = P[36]; lm.eyeRInner = P[39]; lm.eyeLInner = P[42]; lm.eyeLOuter = P[45]; }
-        // Eyelid target = upper lid mid-point (between the two upper-lid points), not the eye centre.
-        if (aIsLeft) { lm.eyeL = 0.5f * (P[37] + P[38]); lm.eyeR = 0.5f * (P[43] + P[44]); } else { lm.eyeR = 0.5f * (P[37] + P[38]); lm.eyeL = 0.5f * (P[43] + P[44]); }
+        assignNamed(lm);
         lm.found = true;
         char buf[160]; std::snprintf(buf, sizeof buf, "dlib: face score %.2f, 68 landmarks, %d lifted from background, render %dx%d", lm.confidence, off, det.width, det.height);
-        lm.note = buf;
+        lm.note = (builtinNote.empty() ? "" : builtinNote + "; ") + buf;
     } catch (const std::exception& e) { lm.found = false; lm.note = std::string("dlib error: ") + e.what(); }
     return lm;
 #endif

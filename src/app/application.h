@@ -60,7 +60,7 @@ public:
         bool keysDemo = false; bool graphDemo = false;            ///< seed a few key-layer keys on JawOpen + Head X and open the timeline in key mode (screenshots/tests)
         bool paintDemo = false;           ///< with paintBone: apply a scripted brush stroke across the cheek (headless demo/test)               ///< select the paint tool on this bone at start (screenshots / demos)
         bool showLandmarks = false; int liveDevice = -1; float liveTestNoiseDb = -100.0f;   ///< --live-device N (-2 = test signal) --live-noise dB
-        std::string landmarks = "auto";   ///< --landmarks auto|on|off (dlib auto-landmarking before rig build)
+        std::string landmarks = "auto";   ///< --landmarks auto|on|off|builtin|dlib (auto-landmarking engine before rig build)
         std::string emotion;              ///< performance-layer emotion preset for generation
         float emotionAmount = 0.8f;
         std::string transcript;

@@ -1,0 +1,9 @@
+stage 5: train NME 0.0033  val NME 0.0089  (38s)
+wrote /tmp/lm/v2.frlm
+  SDM cascade: 5 stages, 91 ICT identities x 10 augs x 3 inits, res 96 patch 5 spacing 0.035, lambda 20.00; val NME 0.0089 on 10 held-out identities
+  quantised val NME 0.0089
+  jaw    NME 0.0073
+  brows  NME 0.0066
+  nose   NME 0.0056
+  eyes   NME 0.0085
+  mouth  NME 0.0131

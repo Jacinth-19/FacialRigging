@@ -114,7 +114,7 @@ int main(int argc, char** argv) {
         else if (a == "--calibrate-text") calibText = next();
         else if (a == "--speaker") speakerIn = next();
         else if (a == "--save-speaker") speakerOut = next();
-        else if (a == "--landmarks") { std::string v = next(); pipe.autoLandmarks = v == "off" ? Pipeline::AutoLandmarks::Off : v == "on" ? Pipeline::AutoLandmarks::On : Pipeline::AutoLandmarks::Auto; }
+        else if (a == "--landmarks") { std::string v = next(); Pipeline::parseLandmarkOption(v, pipe.autoLandmarks, pipe.landmarkEngine); }
         else if (a == "--dump-landmarks") dumpLandmarks = next();
         else if (a == "--save-audio") saveAudio = next();
         else if (a == "--project") project = next();

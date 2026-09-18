@@ -56,3 +56,45 @@ TEST_CASE("dlib auto-landmarks place the ICT rig landmarks on the real features"
     for (auto& cp : p.rig.controlPoints) if (cp.name == "MouthCornerL") { foundCorner = true; REQUIRE(glm::length(cp.restPosition - L.cornerL) < 0.02f); }
     REQUIRE(foundCorner);
 }
+
+#include "rig/landmark_cascade.h"
+#include "core/obj_io.h"
+
+TEST_CASE("built-in landmark cascade loads, is compact and hits the ICT ground-truth vertices", "[landmarks][ict]") {
+    std::string why;
+    const LandmarkCascade* m = LandmarkCascade::builtin(&why);
+    REQUIRE(m != nullptr);
+    REQUIRE(m->valid()); REQUIRE(m->stages.size() >= 3);
+    Mesh mesh; std::string err;
+    REQUIRE(loadObj(std::string(FR_ASSET_DIR) + "/models/ict_face/ict_face.obj", mesh, &err));
+    // ground truth from the published Multi-PIE vertex ids (through the OBJ split-vertex map)
+    std::vector<uint32_t> firstOf; for (uint32_t v = 0; v < mesh.sourceVertex.size(); ++v) { uint32_t s = mesh.sourceVertex[v]; if (s >= firstOf.size()) firstOf.resize(size_t(s) + 1, UINT32_MAX); if (firstOf[s] == UINT32_MAX) firstOf[s] = v; }
+    const int* ids = LandmarkCascade::ictLandmarkVertices();
+    GeoFaceBox box; std::vector<glm::vec2> shape; float conf = 0.0f;
+    REQUIRE(m->predict(mesh, mesh.positions, box, shape, &conf, -1));
+    REQUIRE(box.valid); REQUIRE(conf > 0.5f);
+    glm::vec3 el = mesh.positions[firstOf[size_t(ids[36])]], er = mesh.positions[firstOf[size_t(ids[45])]];
+    float io = glm::length(glm::vec2(el) - glm::vec2(er));
+    float sum = 0.0f;
+    for (int i = 0; i < kLm68; ++i) { glm::vec2 gt = glm::vec2(mesh.positions[firstOf[size_t(ids[i])]]); sum += glm::length(LandmarkCascade::toWorldXY(box, shape[size_t(i)]) - gt); }
+    REQUIRE(sum / kLm68 / io < 0.03f);   // generic neutral (in the training set) - well under 3 % inter-ocular
+    // the lifted pipeline result is available without any dlib model
+    REQUIRE(landmarkerAvailable(&why, "", LandmarkEngine::Builtin));
+    LandmarkOptions opt; opt.engine = LandmarkEngine::Builtin;
+    FaceLandmarks L = detectLandmarks(mesh, opt);
+    REQUIRE(L.found); REQUIRE(L.points68.size() == 68);
+    REQUIRE(glm::length(L.noseTip - mesh.positions[firstOf[size_t(ids[30])]]) < 0.03f * io);   // lifted nose tip within 3 % inter-ocular
+}
+
+TEST_CASE("built-in cascade tolerates rescaled and slightly rotated input", "[landmarks][ict]") {
+    const LandmarkCascade* m = LandmarkCascade::builtin(); if (!m) return;
+    Mesh mesh; std::string err;
+    REQUIRE(loadObj(std::string(FR_ASSET_DIR) + "/models/ict_face/ict_face.obj", mesh, &err));
+    GeoFaceBox b0; std::vector<glm::vec2> s0; REQUIRE(m->predict(mesh, mesh.positions, b0, s0, nullptr, -1));
+    std::vector<glm::vec3> P = mesh.positions; const float a = glm::radians(8.0f);
+    for (auto& p : P) p = 100.0f * glm::vec3(p.x * std::cos(a) - p.z * std::sin(a), p.y, p.x * std::sin(a) + p.z * std::cos(a));
+    GeoFaceBox b1; std::vector<glm::vec2> s1; float conf = 0.0f; REQUIRE(m->predict(mesh, P, b1, s1, &conf, -1));
+    REQUIRE(conf > 0.3f);
+    float d = 0.0f; for (int i = 0; i < kLm68; ++i) d += glm::length(s0[size_t(i)] - s1[size_t(i)]);
+    REQUIRE(d / kLm68 < 0.03f);   // box-normalised units
+}

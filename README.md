@@ -181,16 +181,34 @@ class and viseme smoothing are adjustable and applied on *Apply & restart captur
 signal now has silent gaps and an injectable noise floor (`--live --live-device -2 --live-noise -45`)
 so the gate can be exercised without a microphone.
 
-### Automatic landmarking (dlib)
+### Automatic landmarking (built-in ICT-trained cascade)
+
+The default landmarker is our own 68-point **supervised-descent cascade**
+(`src/rig/landmark_cascade.*`, model `assets/models/face_landmarks.frlm`, 5.5 MB, int16
+quantised). It is trained by `fr_train_landmarks` on the 101 ICT-FaceKit identities (the 68
+Multi-PIE landmark vertices published with the kit are the ground truth), each rendered with random
+expression mixes of the 53 shapes, yaw/pitch/roll and scale jitter and face-box jitter. It reads
+depth + normal patches from a geometry render, so it needs no skin texture and no face detector: the
+face box is anchored on the nose tip (most forward point) and cheek width. Held-out validation
+(10 identities never seen in training, expression + pose augmented) gives a mean error of 0.9 % of
+the inter-ocular distance (nose 0.6 %, mouth 1.3 %); it also lands on the untextured Igea, Nefertiti
+and Max Planck scans where the dlib HOG detector failed on the last one, and runs ~4x faster
+(0.3 s vs 1.2 s including the render). Retrain with
+`build/fr_train_landmarks <ICT-FaceKit/FaceXModel> assets/models/ict_face/ict_face.fbs assets/models/face_landmarks.frlm`
+(the ICT identities are pulled by a sparse clone; see the tool's header). `--landmarks builtin|dlib`
+picks the engine explicitly; `auto` uses the cascade and falls back to dlib only when the cascade
+result is below the confidence threshold and dlib + its model are present.
+
+### Legacy engine (dlib, optional)
 
 Rig landmarks (mouth, mouth corners, brows, eyelids, chin) are no longer bounding-box proportions:
 `src/rig/landmarks.cpp` renders the mesh front-on with a tiny software rasterizer (skin part only,
 with a per-pixel world-position buffer), runs dlib's HOG face detector + the **68-point shape
 predictor** on it, lifts the 2D points back onto the surface and derives the rig landmarks from the
-iBUG-68 layout. `tools/bootstrap.sh` fetches `data/models/shape_predictor_68_face_landmarks.dat`
+iBUG-68 layout. `tools/bootstrap.sh --dlib-model` fetches `data/models/shape_predictor_68_face_landmarks.dat` (off by default now; build with `-DFR_WITH_DLIB=ON`)
 (99 MB, gitignored); without it - or without a detectable face (the procedural egg head) - the old
 proportional guesses are used and the UI says so. *Check Model ▸ Landmarks* chooses the mode, previews
-the 68 points in the viewport; CLI `--landmarks auto|on|off`, `fr_cli --dump-landmarks lm.pgm`,
+the 68 points in the viewport; CLI `--landmarks auto|on|off|builtin|dlib`, `fr_cli --dump-landmarks lm.pgm`,
 GUI `--show-landmarks`. Disable the dependency with `-DFR_WITH_DLIB=OFF`.
 
 ### Rig authoring: weight painting, sculpted shapes, correctives

@@ -70,7 +70,7 @@ int Application::run() {
     meshRenderer.shadeMode = MeshRenderer::ShadeMode(std::clamp(opts_.shadeMode, 0, 5));
     msaaSamples = opts_.msaa;
     if (!opts_.projectPath.empty() && loadProject(opts_.projectPath)) { projectLoadedOnStart = true; } else
-    pipe.autoLandmarks = opts_.landmarks == "off" ? Pipeline::AutoLandmarks::Off : opts_.landmarks == "on" ? Pipeline::AutoLandmarks::On : Pipeline::AutoLandmarks::Auto;
+    Pipeline::parseLandmarkOption(opts_.landmarks, pipe.autoLandmarks, pipe.landmarkEngine);
     loadModel(opts_.modelPath);
     showLandmarks = opts_.showLandmarks;
     if (opts_.gazeYaw != 0.0f || opts_.gazePitch != 0.0f) pipe.rig.setGaze(opts_.gazeYaw, opts_.gazePitch);

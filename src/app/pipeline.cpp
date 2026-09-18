@@ -123,10 +123,19 @@ void Pipeline::translateModel(const glm::vec3& d) {
     Mesh m = rig.mesh; rig.setMesh(m);
 }
 
+void Pipeline::parseLandmarkOption(const std::string& v, AutoLandmarks& mode, LandmarkEngine& engine) {
+    if (v == "off") mode = AutoLandmarks::Off;
+    else if (v == "on") mode = AutoLandmarks::On;
+    else if (v == "builtin") { mode = AutoLandmarks::On; engine = LandmarkEngine::Builtin; }
+    else if (v == "dlib") { mode = AutoLandmarks::On; engine = LandmarkEngine::Dlib; }
+    else mode = AutoLandmarks::Auto;
+}
+
 bool Pipeline::detectLandmarksNow() {
     std::string why;
-    if (!landmarkerAvailable(&why)) { lastLandmarks = FaceLandmarks{}; lastLandmarks.note = why; note("Auto-landmarking unavailable: " + why); return false; }
-    lastLandmarks = detectLandmarks(rig.mesh);
+    LandmarkOptions opt; opt.engine = landmarkEngine;
+    if (!landmarkerAvailable(&why, "", opt.engine)) { lastLandmarks = FaceLandmarks{}; lastLandmarks.note = why; note("Auto-landmarking unavailable: " + why); return false; }
+    lastLandmarks = detectLandmarks(rig.mesh, opt);
     if (lastLandmarks.found) {
         // Sanity: the detected mouth must sit below the eyes and inside the bounds, else distrust it.
         const glm::vec3 lo = rig.mesh.boundsMin(), hi = rig.mesh.boundsMax();
@@ -141,7 +150,7 @@ bool Pipeline::detectLandmarksNow() {
 void Pipeline::buildDefaultRig() {
     if (autoLandmarks != AutoLandmarks::Off && rig.mesh.vertexCount() > 0) {
         std::string why;
-        if (autoLandmarks == AutoLandmarks::On || landmarkerAvailable(&why)) detectLandmarksNow();
+        if (autoLandmarks == AutoLandmarks::On || landmarkerAvailable(&why, "", landmarkEngine)) detectLandmarksNow();
         else { lastLandmarks = FaceLandmarks{}; lastLandmarks.note = why; }
     } else lastLandmarks = FaceLandmarks{};
     const FaceLandmarks* lm = lastLandmarks.found ? &lastLandmarks : nullptr;

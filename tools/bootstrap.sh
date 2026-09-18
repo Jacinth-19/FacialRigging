@@ -10,7 +10,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$(pwd)
 RUN_TESTS=1 WANT_TIMIT=0 WANT_TORCH=0 WANT_CREMA=0
-for a in "$@"; do case "$a" in --no-test) RUN_TESTS=0;; --timit) WANT_TIMIT=1;; --torch) WANT_TORCH=1;; --crema) WANT_CREMA=1;; esac; done
+WANT_DLIB=0
+for a in "$@"; do case "$a" in --no-test) RUN_TESTS=0;; --timit) WANT_TIMIT=1;; --torch) WANT_TORCH=1;; --crema) WANT_CREMA=1 ;;
+    --dlib-model) WANT_DLIB=1;; esac; done
 log() { printf '\033[1;32m[bootstrap]\033[0m %s\n' "$*"; }
 
 # --- 1. build tools (cmake/ninja via pip when the system has none) ------------------------------
@@ -58,12 +60,12 @@ if [ "$WANT_TIMIT" = 1 ] && [ ! -d data/timit/TRAIN ]; then
   git -C data/.timit_tmp sparse-checkout set data
   mv data/.timit_tmp/data data/timit; rm -rf data/.timit_tmp
 fi
-if [ ! -f data/models/shape_predictor_68_face_landmarks.dat ]; then
-  log "fetching dlib 68-point shape predictor (99 MB) for auto-landmarking"
+if [ "$WANT_DLIB" = 1 ] && [ ! -f data/models/shape_predictor_68_face_landmarks.dat ]; then
+  log "fetching dlib 68-point shape predictor (99 MB) - optional legacy engine (--landmarks dlib); the built-in assets/models/face_landmarks.frlm is the default"
   mkdir -p data/models; rm -rf data/.lm_tmp
   if git clone -q --depth 1 https://github.com/italojs/facial-landmarks-recognition data/.lm_tmp 2>/dev/null; then
     mv data/.lm_tmp/shape_predictor_68_face_landmarks.dat data/models/; rm -rf data/.lm_tmp
-  else log "  (download failed - auto-landmarking will fall back to proportional guesses)"; fi
+  else log "  (download failed - built-in landmarker is still used)"; fi
 fi
 if [ "$WANT_CREMA" = 1 ] && [ ! -d data/crema_d ]; then
   log "fetching CREMA-D audio (plain-blob mirror hallowshaw/Speech-Emotion-Recognition-with-MFCC, ~600 MB)"

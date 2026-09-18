@@ -25,10 +25,14 @@ struct FaceLandmarks {
     std::string note;                        ///< human-readable diagnostics ("dlib: face 0.93, 68 points, 3 off-surface")
 };
 
+enum class LandmarkEngine { Auto, Builtin, Dlib };   ///< Auto = built-in cascade, dlib only when the cascade fails / is missing
+
 struct LandmarkOptions {
-    int renderSize = 512;                    ///< square front render resolution
-    std::string modelPath;                   ///< shape_predictor_68_face_landmarks.dat ("" = data/models/...)
-    bool upsample = true;                    ///< run the detector on a 2x pyramid level (small faces)
+    int renderSize = 512;                    ///< square front render resolution (dlib path / lift buffer)
+    std::string modelPath;                   ///< dlib shape_predictor_68_face_landmarks.dat ("" = data/models/...)
+    bool upsample = true;                    ///< dlib: run the detector on a 2x pyramid level (small faces)
+    LandmarkEngine engine = LandmarkEngine::Auto;
+    float minConfidence = 0.35f;             ///< built-in cascade: below this the result counts as "not found"
 };
 
 /// Software front render (orthographic, looking down -z, y up). Fills grey8 shading and per-pixel
@@ -43,8 +47,8 @@ struct FrontRender {
 FrontRender renderFront(const Mesh& mesh, int size, int onlyPart = -1);
 bool savePgm(const FrontRender& r, const std::string& path, const std::vector<glm::vec2>* marks = nullptr);
 
-/// True when dlib was compiled in and the model file exists.
-bool landmarkerAvailable(std::string* why = nullptr, const std::string& modelPath = "");
+/// True when some engine can run: the built-in cascade model (assets/models/face_landmarks.frlm) or dlib + its predictor.
+bool landmarkerAvailable(std::string* why = nullptr, const std::string& modelPath = "", LandmarkEngine engine = LandmarkEngine::Auto);
 /// Runs the detector on a front render of the mesh. Never throws.
 FaceLandmarks detectLandmarks(const Mesh& mesh, const LandmarkOptions& opt = {});
 /// Proportional fallback used when detection fails (the historical bounding-box guesses).

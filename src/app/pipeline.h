@@ -92,6 +92,8 @@ public: ///< empty path -> procedural head
     /// Auto = use it when available, Off = proportional guesses, On = required (logs a warning on failure).
     enum class AutoLandmarks { Auto, Off, On };
     AutoLandmarks autoLandmarks = AutoLandmarks::Auto;
+    LandmarkEngine landmarkEngine = LandmarkEngine::Auto;   ///< built-in ICT-trained cascade (default) or dlib
+    static void parseLandmarkOption(const std::string& v, AutoLandmarks& mode, LandmarkEngine& engine);   ///< "auto|on|off|builtin|dlib"
     FaceLandmarks lastLandmarks;                  ///< result of the last detection attempt (found=false when skipped/failed)
     /// Runs detection now (also used by the GUI's "Detect landmarks" button). Returns found.
     bool detectLandmarksNow();

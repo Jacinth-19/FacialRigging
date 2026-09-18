@@ -13,7 +13,7 @@ option(FR_BUILD_TESTS   "Build unit tests (Catch2)" ON)
 option(FR_WITH_FBX_SDK  "Link the Autodesk FBX SDK (set FBX_SDK_ROOT)" OFF)
 option(FR_WITH_ASSIMP   "Build the Assimp-based FBX exporter" ON)
 option(FR_WITH_PORTAUDIO "Build live microphone capture with PortAudio" ON)
-option(FR_WITH_DLIB     "Build dlib-based automatic face landmarking (front render -> 68 points -> rig landmarks)" ON)
+option(FR_WITH_DLIB     "Also build the legacy dlib landmarking engine (--landmarks dlib; needs the 99 MB shape predictor). The built-in ICT-trained cascade is always available" OFF)
 option(FR_WITH_TORCH    "Build the LibTorch ML viseme mapper (set Torch_DIR or TORCH_ROOT)" OFF)
 set(TORCH_ROOT "" CACHE PATH "Root of a LibTorch / torch python package (contains lib/ and include/)")
 
@@ -49,6 +49,7 @@ add_library(fr_core STATIC
   src/core/raycast.cpp
   src/core/camera.cpp
   src/rig/rig.cpp
+  src/rig/landmark_cascade.cpp
   src/rig/rig_tools.cpp
   src/rig/blendshape_io.cpp
   src/rig/rbf_deformer.cpp
@@ -347,6 +348,12 @@ option(FR_BUILD_TRAINER "Build the fr_train_visemes tool" ON)
 if(FR_BUILD_TRAINER)
   add_executable(fr_train_visemes tools/train_visemes.cpp)
   target_link_libraries(fr_train_visemes PRIVATE fr_core fr_warnings)
+  add_executable(fr_train_landmarks tools/train_landmarks.cpp)
+  target_link_libraries(fr_train_landmarks PRIVATE fr_core fr_warnings)
+  find_package(OpenMP QUIET)
+  if(OpenMP_CXX_FOUND)
+    target_link_libraries(fr_train_landmarks PRIVATE OpenMP::OpenMP_CXX)
+  endif()
   add_executable(fr_train_emotion tools/train_emotion.cpp)
   target_link_libraries(fr_train_emotion PRIVATE fr_core fr_warnings)
   add_executable(fr_eval_alignment tools/eval_alignment.cpp)

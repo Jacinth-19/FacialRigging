@@ -1,5 +1,6 @@
 #include "export/exporter.h"
 #include "rig/blendshape_io.h"
+#include "core/json_io.h"
 #include <cstdio>
 #include <cstring>
 #include <cctype>
@@ -19,9 +20,11 @@ std::string esc(const std::string& s) { std::string o; for (char c : s) { if (c 
 void arr(std::ostream& o, const std::vector<float>& v) { o << '['; for (size_t i = 0; i < v.size(); ++i) { if (i) o << ','; char b[32]; std::snprintf(b, sizeof b, "%.5g", double(v[i])); o << b; } o << ']'; }
 }
 
-bool JsonClipExporter::exportScene(const Rig& rig, const std::vector<AnimationClip>& clips, const std::string& path, const ExportOptions&, std::string* error) {
+bool JsonClipExporter::exportScene(const Rig& rig, const std::vector<AnimationClip>& clips, const std::string& path, const ExportOptions& opts, std::string* error) {
     std::ostringstream o;
-    o << "{\"format\":\"frclip\",\"version\":1,\"clips\":[";
+    o << "{\"format\":\"frclip\",\"version\":1,";
+    { std::string uri = writeAudioSidecar(path, opts, false, nullptr); if (!uri.empty()) o << "\"audio\":{\"uri\":\"" << esc(uri) << "\",\"offset\":" << opts.audioOffset << ",\"sampleRate\":" << opts.audio->sampleRate << ",\"duration\":" << opts.audio->duration() << "},"; }
+    o << "\"clips\":[";
     for (size_t ci = 0; ci < clips.size(); ++ci) {
         const auto& c = clips[ci];
         if (ci) o << ',';
@@ -65,31 +68,12 @@ bool JsonClipExporter::exportScene(const Rig& rig, const std::vector<AnimationCl
 
 // --- minimal reader for the format above (only what we write; tolerant of whitespace)
 namespace {
-struct P {
-    const std::string& s; size_t i = 0;
-    explicit P(const std::string& str) : s(str) {}
-    void ws() { while (i < s.size() && std::isspace((unsigned char)s[i])) ++i; }
-    bool peek(char c) { ws(); return i < s.size() && s[i] == c; }
-    bool eat(char c) { if (peek(c)) { ++i; return true; } return false; }
-    bool str(std::string& out) { ws(); if (!eat('"')) return false; out.clear(); while (i < s.size() && s[i] != '"') { if (s[i] == '\\' && i + 1 < s.size()) ++i; out += s[i++]; } return eat('"'); }
-    bool num(float& out) { ws(); char* e = nullptr; out = std::strtof(s.c_str() + i, &e); if (e == s.c_str() + i) return false; i = size_t(e - s.c_str()); return true; }
-    bool skipValue() { // any JSON value
-        ws(); if (i >= s.size()) return false;
-        if (s[i] == '"') { std::string d; return str(d); }
-        if (s[i] == '[' || s[i] == '{') { char o = s[i], c = o == '[' ? ']' : '}'; int depth = 0; do { if (s[i] == '"') { std::string d; str(d); continue; } if (s[i] == o) ++depth; else if (s[i] == c) --depth; ++i; } while (depth > 0 && i < s.size()); return depth == 0; }
-        while (i < s.size() && !std::strchr(",]}", s[i])) ++i;
-        return true;
-    }
-    bool numArr(std::vector<float>& v) { v.clear(); if (!eat('[')) return false; if (eat(']')) return true; do { float f; if (!num(f)) return false; v.push_back(f); } while (eat(',')); return eat(']'); }
-    bool vecArr(std::vector<std::vector<float>>& v) { v.clear(); if (!eat('[')) return false; if (eat(']')) return true; do { std::vector<float> e; if (!numArr(e)) return false; v.push_back(e); } while (eat(',')); return eat(']'); }
-};
-template <class F> bool objEach(P& p, F&& onKey) { if (!p.eat('{')) return false; if (p.eat('}')) return true; do { std::string k; if (!p.str(k) || !p.eat(':')) return false; if (!onKey(k)) return false; } while (p.eat(',')); return p.eat('}'); }
-template <class F> bool arrEach(P& p, F&& onItem) { if (!p.eat('[')) return false; if (p.eat(']')) return true; do { if (!onItem()) return false; } while (p.eat(',')); return p.eat(']'); }
+using json::Cursor; using json::objEach; using json::arrEach;
 }
 
 bool loadClipsJson(const std::string& path, std::vector<AnimationClip>& out, std::string* error) {
     std::ifstream f(path, std::ios::binary); if (!f) { if (error) *error = "cannot open " + path; return false; }
-    std::stringstream ss; ss << f.rdbuf(); const std::string text = ss.str(); P p(text);
+    std::stringstream ss; ss << f.rdbuf(); const std::string text = ss.str(); Cursor p(text);
     bool ok = objEach(p, [&](const std::string& k) {
         if (k != "clips") return p.skipValue();
         return arrEach(p, [&]() {

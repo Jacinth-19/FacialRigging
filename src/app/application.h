@@ -2,6 +2,7 @@
 #include "app/pipeline.h"
 #include "rig/rig_tools.h"
 #include "audio/live_capture.h"
+#include "export/arkit_livelink.h"
 #include "core/camera.h"
 #include "core/raycast.h"
 #include "render/gizmo_renderer.h"
@@ -31,7 +32,7 @@ struct UndoState {
 class Application {
 public:
     struct Options {
-        std::string modelPath, audioPath, shaderDir, assetDir, iconFontPath;
+        std::string modelPath, audioPath, shaderDir, assetDir, iconFontPath, projectPath;
         int width = 1440, height = 900;
         bool autoGenerate = false;        ///< run lipsync right after start
         std::string exportOnStart;        ///< if set: export to this path and quit (agent mode)
@@ -94,6 +95,17 @@ public:
     void loadAudio(const std::string& path);
     void generate();
     void exportNow(const std::string& path, const std::vector<std::string>& variations);
+    bool projectLoadedOnStart = false;   ///< --project succeeded (UI marks all steps done, jumps to the animation page)
+    bool saveProject(const std::string& path);
+    bool loadProject(const std::string& path);
+    // ARKit Live Link streaming (item: mocap-style UDP output). Sends a frame whenever the rig pose changes during playback / live mic / manual posing.
+    bool liveLinkStart(const std::string& host, int port);
+    void liveLinkStop();
+    bool liveLinkActive() const { return liveLink_.isOpen(); }
+    uint64_t liveLinkFrames() const { return liveLink_.framesSent(); }
+    int liveLinkMapped() const { return arkitMap_.mappedCount(); }
+    void liveLinkTick();
+    ArkitMapping arkitMap_; LiveLinkSender liveLink_; uint32_t liveLinkFrame_ = 0; double liveLinkNext_ = 0.0;
     const Options& options() const { return opts_; }
     /// Reads back the current framebuffer (RGB8) and writes a binary PPM.
     bool saveFrame(const std::string& path) const;

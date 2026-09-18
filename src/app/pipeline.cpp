@@ -1,4 +1,5 @@
 #include "app/pipeline.h"
+#include "core/scene_import.h"
 #include "core/obj_io.h"
 #include "export/exporter.h"
 #include "audio/ml_viseme_mapper.h"
@@ -53,6 +54,21 @@ void Pipeline::note(const std::string& s) { log.push_back(s); }
 
 bool Pipeline::loadModel(const std::string& path, std::string* error) {
     Mesh m;
+    modelPath = path; userRotation = glm::mat3(1.0f); userTranslation = glm::vec3(0.0f);
+    importedSkeleton = false; importedClips.clear(); importedSkel_ = Skeleton{}; importedSkin_.clear();
+    std::string ext; { auto dot = path.find_last_of('.'); if (dot != std::string::npos) { ext = path.substr(dot); for (auto& c : ext) c = char(std::tolower((unsigned char)c)); } }
+    if (!path.empty() && ext != ".obj") {
+        // rigged character through Assimp (FBX / glTF / DAE ...)
+        SceneImportResult in; SceneImportOptions io; std::string err;
+        if (!importScene(path, io, in, &err)) { if (error) *error = err; note("Import failed: " + err); return false; }
+        note("Imported " + path + ": " + in.log);
+        modelTransform = ModelTransform{};
+        rig.setMesh(in.mesh);
+        authoredShapes_ = std::move(in.blendShapes); authoredShapesPath = path; authoredCanonicalCoverage = 0;
+        if (!in.skeleton.bones.empty() && in.hasSkin()) { importedSkeleton = true; importedSkel_ = in.skeleton; importedSkin_ = in.skin; }
+        importedClips = std::move(in.clips);
+        return true;
+    }
     if (path.empty()) { m = makeProceduralHead(); note("Using procedural head mesh"); }
     else {
         std::string err;
@@ -88,6 +104,7 @@ bool Pipeline::loadModel(const std::string& path, std::string* error) {
 }
 
 void Pipeline::transformModel(const glm::mat3& R) {
+    userRotation = R * userRotation;
     Mesh m = rig.mesh;
     if (m.positions.empty()) return;
     glm::vec3 lo = m.boundsMin(), hi = m.boundsMax(); float extBefore = std::max({hi.x - lo.x, hi.y - lo.y, hi.z - lo.z});
@@ -101,11 +118,25 @@ void Pipeline::transformModel(const glm::mat3& R) {
 }
 
 void Pipeline::translateModel(const glm::vec3& d) {
+    userTranslation += d;
     for (auto& p : rig.mesh.positions) p += d;
     Mesh m = rig.mesh; rig.setMesh(m);
 }
 
 void Pipeline::buildDefaultRig() {
+    if (importedSkeleton && importedSkin_.size() == rig.mesh.vertexCount()) {
+        // Keep the character's own skeleton and weights; the default builder only contributes
+        // control points and procedural fallbacks for canonical shapes the file doesn't have.
+        rig.buildDefaultFaceRig();
+        rig.skeleton = importedSkel_; rig.skin = importedSkin_;
+        for (auto& cp : rig.controlPoints) if (cp.binding == BindingType::Bone) { int j = rig.skeleton.find(cp.target == 1 ? Rig::kJawBone : Rig::kHeadBone); if (j >= 0) cp.target = j; else cp.binding = BindingType::Unbound; }
+        int jaw = rig.skeleton.find(Rig::kJawBone);
+        if (jaw < 0) { lipSync.jawBoneDegrees = 0.0f; note("Imported skeleton has no 'Jaw' bone: jaw motion goes through the JawOpen shape only"); }
+        if (!authoredShapes_.empty()) authoredCanonicalCoverage = rig.installAuthoredBlendShapes(authoredShapes_);
+        note("Using imported skeleton: " + std::to_string(rig.skeleton.bones.size()) + " bones, " + std::to_string(authoredCanonicalCoverage) + "/" + std::to_string(std::size(shapes::All)) + " canonical shapes from " + std::to_string(authoredShapes_.size()) + " imported morph targets");
+        if (!importedClips.empty() && clip.duration <= 0) { clip = importedClips[0]; note("Loaded imported animation '" + clip.name + "'"); }
+        return;
+    }
     rig.buildDefaultFaceRig();
     if (!authoredShapes_.empty()) {
         authoredCanonicalCoverage = rig.installAuthoredBlendShapes(authoredShapes_);
@@ -121,6 +152,7 @@ void Pipeline::buildDefaultRig() {
 }
 
 bool Pipeline::loadAudio(const std::string& path, std::string* error) {
+    audioPath = path;
     if (path.empty()) { audio = synthesizeTestSpeech(3.0); note("Using synthetic test speech (3 s)"); return true; }
     std::string err;
     if (!loadWav(path, audio, &err)) { if (error) *error = err; note("Audio load failed: " + err); return false; }
@@ -178,7 +210,8 @@ bool Pipeline::exportClip(const AnimationClip& c, const std::string& path, std::
     std::string out = path;
     if (!fbNote.empty()) { note(fbNote); auto dot = out.find_last_of('.'); out = out.substr(0, dot) + ex->fileExtension(); }
     std::string err;
-    if (!ex->exportScene(rig, {c}, out, ExportOptions{}, &err)) { if (error) *error = err; note("Export failed: " + err); return false; }
+    ExportOptions eo; if (exportAudioSidecar && !audio.samples.empty()) { eo.audio = &audio; eo.audioOffset = 0.0f; eo.embedAudioInGlb = embedAudioInGlb; }
+    if (!ex->exportScene(rig, {c}, out, eo, &err)) { if (error) *error = err; note("Export failed: " + err); return false; }
     note("Exported " + ex->formatName() + " -> " + out);
     if (writtenPath) *writtenPath = out;
     return true;

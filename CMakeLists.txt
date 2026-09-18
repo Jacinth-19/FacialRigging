@@ -61,12 +61,14 @@ add_library(fr_core STATIC
   src/anim/lipsync_generator.cpp
   src/export/gltf_exporter.cpp
   src/export/json_clip_exporter.cpp
+  src/export/arkit_livelink.cpp
   src/anim/coarticulation.cpp
   src/anim/idle_motion.cpp
   src/audio/g2p.cpp
   src/audio/phoneme_aligner.cpp
   src/export/exporter_factory.cpp
   src/app/pipeline.cpp
+  src/app/project.cpp
 )
 target_include_directories(fr_core PUBLIC src)
 target_link_libraries(fr_core PUBLIC glm::glm PRIVATE fr_warnings)
@@ -107,11 +109,11 @@ if(FR_WITH_ASSIMP)
   set(ASSIMP_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
   set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
   add_subdirectory(third_party/assimp SYSTEM EXCLUDE_FROM_ALL)
-  target_sources(fr_core PRIVATE src/export/assimp_fbx_exporter.cpp)
+  target_sources(fr_core PRIVATE src/export/assimp_fbx_exporter.cpp src/core/scene_import.cpp)
   target_link_libraries(fr_core PUBLIC assimp::assimp)
   target_compile_definitions(fr_core PUBLIC FR_HAVE_ASSIMP=1)
 else()
-  target_sources(fr_core PRIVATE src/export/assimp_fbx_exporter_stub.cpp)
+  target_sources(fr_core PRIVATE src/export/assimp_fbx_exporter_stub.cpp src/core/scene_import_stub.cpp)
   target_compile_definitions(fr_core PUBLIC FR_HAVE_ASSIMP=0)
 endif()
 
@@ -298,7 +300,10 @@ if(FR_BUILD_TESTS)
     tests/test_parts.cpp
     tests/test_features.cpp
     tests/test_speech_model.cpp
-    tests/test_rig_tools.cpp)
+    tests/test_rig_tools.cpp
+    tests/test_scene_import.cpp
+    tests/test_arkit.cpp
+    tests/test_project.cpp)
   target_link_libraries(fr_tests PRIVATE fr_core Catch2::Catch2WithMain fr_warnings)
   target_compile_definitions(fr_tests PRIVATE FR_ASSET_DIR="${CMAKE_SOURCE_DIR}/assets")
 endif()

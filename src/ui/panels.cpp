@@ -37,13 +37,15 @@ struct UiState {
     bool showParts = true;
     int emotionSel = 0; float emotionAmt = 0.8f; float gazeYaw = 0.0f, gazePitch = 0.0f;
     char clipBuf[512] = "out/clip.json";
+    char projectBuf[512] = "out/session.frproj";
+    char liveLinkHost[64] = "127.0.0.1"; int liveLinkPort = 11111;
     // export
-    bool showExportDialog = false, showImportClip = false;
-    std::vector<AudioDevice> devs; bool devsListed = false; int devSel = -1; std::string devErr;
-    Fonts fonts; float scale = 1.0f;
+    bool showExportDialog = false, showImportClip = false; int showProjectDialog = 0; // 1 open, 2 save
     int rigTabRequest = -1;
     // bake / correctives
     char bakeName[64] = "Custom"; bool bakeResidual = true, bakeSplit = false; int corrA = 0, corrB = 0;
+    std::vector<AudioDevice> devs; bool devsListed = false; int devSel = -1; std::string devErr;
+    Fonts fonts; float scale = 1.0f;
     // timeline editor
     bool timelineOpen = true; float tlZoom = 1.0f, tlScroll = 0.0f;   // seconds visible = duration / zoom; scroll in seconds
     float selA = -1.0f, selB = -1.0f;                                   // time-range selection (seconds), selA<0 = none
@@ -68,6 +70,9 @@ void menuBar(Application& app) {
             if (ImGui::MenuItem("Load Face Model...")) ui.step = StepLoad;
             if (ImGui::MenuItem("Load ICT-FaceKit head")) { std::strncpy(ui.modelBuf, (app.options().assetDir + "/models/ict_face/ict_face.obj").c_str(), sizeof ui.modelBuf - 1); app.loadModel(ui.modelBuf); ui.stepDone[StepLoad] = true; ui.step = StepCheck; }
             if (ImGui::MenuItem("Load procedural head")) { ui.modelBuf[0] = 0; app.loadModel(""); ui.stepDone[StepLoad] = true; ui.step = StepCheck; }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Open Project...", "Ctrl+O")) ui.showProjectDialog = 1;
+            if (ImGui::MenuItem("Save Project...", "Ctrl+S", false, app.pipe.rig.mesh.vertexCount() > 0)) ui.showProjectDialog = 2;
             ImGui::Separator();
             if (ImGui::MenuItem("Export...", nullptr, false, app.pipe.rig.mesh.vertexCount() > 0)) ui.showExportDialog = true;
             if (ImGui::MenuItem("Import clip JSON...", nullptr, false, app.pipe.rig.mesh.vertexCount() > 0)) { ui.step = StepAnim; ui.showImportClip = true; }
@@ -395,9 +400,9 @@ void weightPaintEditor(Application& app) {
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Skip vertices facing away from the camera so a stroke on the cheek doesn't paint the back of the head.");
     SectionLabel("Mirror :");
     { float w = (ImGui::GetContentRegionAvail().x - 8 * S()) / 2.0f;
-      if (WideButton(ICON_MD_FLIP "  L  ->  R", ImVec2(w, 28 * S()))) { app.pushUndo("mirror weights L->R"); int n = mirrorWeights(rig, true, app.mirrorMap); app.reuploadWeights(); app.status = "Mirrored " + std::to_string(n) + " vertices (model's left, +x, onto the right)"; }
+      if (WideButton(ICON_MD_FLIP "  L  ->  R", ImVec2(w, 28 * S()))) { app.pushUndo("mirror weights L->R"); int n = mirrorWeights(rig, true, app.mirrorMap); app.pipe.skinEdited = true; app.reuploadWeights(); app.status = "Mirrored " + std::to_string(n) + " vertices (model's left, +x, onto the right)"; }
       ImGui::SameLine();
-      if (WideButton(ICON_MD_FLIP "  R  ->  L", ImVec2(w, 28 * S()))) { app.pushUndo("mirror weights R->L"); int n = mirrorWeights(rig, false, app.mirrorMap); app.reuploadWeights(); app.status = "Mirrored " + std::to_string(n) + " vertices (model's right, -x, onto the left)"; }
+      if (WideButton(ICON_MD_FLIP "  R  ->  L", ImVec2(w, 28 * S()))) { app.pushUndo("mirror weights R->L"); int n = mirrorWeights(rig, false, app.mirrorMap); app.pipe.skinEdited = true; app.reuploadWeights(); app.status = "Mirrored " + std::to_string(n) + " vertices (model's right, -x, onto the left)"; }
     }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Copies weights across x = 0 (nearest mirrored vertex), swapping L/R bones (EyeL <-> EyeR).");
     if (WideButton("Normalise / clean weights", ImVec2(-1, 26 * S()))) { app.pushUndo("clean weights"); cleanWeights(rig); app.reuploadWeights(); app.status = "Weights normalised"; }
@@ -679,9 +684,21 @@ void pageAnim(Application& app) {
         if (WideButton(ICON_MD_SAVE "  Save", ImVec2(bw, 28 * S()), p.clip.duration > 0)) { std::string err; app.status = p.exportClip(p.clip, ui.clipBuf, &err) ? "Saved clip JSON " + std::string(ui.clipBuf) : "Save failed: " + err; }
     }
     Rule();
+    SectionLabel("Live Link (ARKit over UDP) :");
+    {
+        const bool on = app.liveLinkActive();
+        ImGui::BeginDisabled(on);
+        ImGui::SetNextItemWidth(140 * S()); ImGui::InputText("##llhost", ui.liveLinkHost, sizeof ui.liveLinkHost); ImGui::SameLine();
+        ImGui::SetNextItemWidth(80 * S()); ImGui::InputInt("##llport", &ui.liveLinkPort, 0, 0);
+        ImGui::EndDisabled();
+        if (WideButton(on ? ICON_MD_STOP "  Stop streaming" : ICON_MD_SENSORS "  Stream to Live Link", ImVec2(-1, 28 * S()))) { if (on) app.liveLinkStop(); else app.liveLinkStart(ui.liveLinkHost, ui.liveLinkPort); }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Streams the current pose as Live Link Face packets (52 ARKit coefficients + head/eye rotation, 60 fps). Add an 'Apple ARKit' Live Link source in Unreal with this port.");
+        if (on) ImGui::TextColored(kAccent, ICON_MD_SENSORS " streaming: %llu frames, %d/52 shapes mapped", (unsigned long long)app.liveLinkFrames(), app.liveLinkMapped());
+    }
+    Rule();
     SectionLabel("Export :");
     ImGui::SetNextItemWidth(-1); ImGui::InputTextWithHint("##out", "out/scene.fbx", ui.exportBuf, sizeof ui.exportBuf);
-    ImGui::TextColored(kTextDim, FR_HAVE_FBX_SDK ? "FBX SDK writer: .fbx / .glb / .gltf" : FR_HAVE_ASSIMP ? "Assimp FBX writer: .fbx / .glb / .gltf" : ".glb / .gltf (no FBX writer compiled in)");
+    ImGui::TextColored(kTextDim, FR_HAVE_FBX_SDK ? "FBX SDK writer: .fbx / .glb / .gltf / .json / .csv" : FR_HAVE_ASSIMP ? "Assimp FBX writer: .fbx / .glb / .gltf / .json / .csv" : ".glb / .gltf / .json / .csv (no FBX writer compiled in)");
     ImGui::SetNextItemWidth(-1); ImGui::InputTextWithHint("##var", "variations, ; separated", ui.variationBuf, sizeof ui.variationBuf);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("e.g. \"Increase smile; Raise eyebrows; intensity=1.4; subtle\" - one extra file per variation");
     if (PrimaryButton(ICON_MD_IOS_SHARE "  Export...", ImVec2(-1, 36 * S()))) ui.showExportDialog = true;
@@ -890,6 +907,19 @@ void draw(Application& app, float x0, float x1, float yTop, float yBot) {
 
 // AccuRIG-style modal: "Export FBX..." / "Export glTF..." buttons.
 void exportDialog(Application& app) {
+    if (ui.showProjectDialog) { ImGui::OpenPopup("Project"); }
+    if (ImGui::BeginPopupModal("Project", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
+        const bool open = ui.showProjectDialog == 1;
+        ImGui::TextUnformatted(open ? "Open a project (.frproj): model, audio, rig edits, settings and clip are restored." : "Save the whole session as one JSON project file (.frproj).");
+        ImGui::SetNextItemWidth(360 * S()); ImGui::InputText("##proj", ui.projectBuf, sizeof ui.projectBuf);
+        if (PrimaryButton(open ? ICON_MD_FOLDER_OPEN "  Open" : ICON_MD_SAVE "  Save", ImVec2(-1, 34 * S()))) {
+            bool ok = open ? app.loadProject(ui.projectBuf) : app.saveProject(ui.projectBuf);
+            if (ok && open) { for (int i = 0; i < StepCount; ++i) ui.stepDone[i] = true; ui.step = app.pipe.clip.duration > 0 ? StepAnim : StepRig; std::strncpy(ui.modelBuf, app.pipe.modelPath.c_str(), sizeof ui.modelBuf - 1); std::strncpy(ui.audioBuf, app.pipe.audioPath.c_str(), sizeof ui.audioBuf - 1); }
+            ui.showProjectDialog = 0; ImGui::CloseCurrentPopup();
+        }
+        if (WideButton("Cancel", ImVec2(-1, 28 * S()))) { ui.showProjectDialog = 0; ImGui::CloseCurrentPopup(); }
+        ImGui::EndPopup();
+    }
     if (ui.showExportDialog) { ImGui::OpenPopup("Export"); ui.showExportDialog = false; }
     ImGui::SetNextWindowSize(ImVec2(360 * S(), 0));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16 * S(), 16 * S()));
@@ -901,6 +931,15 @@ void exportDialog(Application& app) {
         if (WideButton(ICON_MD_FILE_DOWNLOAD "  Export glTF binary (.glb)...", ImVec2(-1, 36 * S()))) { app.exportNow(withExt("glb"), vars()); ui.stepDone[StepAnim] = true; ImGui::CloseCurrentPopup(); }
         if (WideButton(ICON_MD_FILE_DOWNLOAD "  Export glTF (.gltf + .bin)...", ImVec2(-1, 36 * S()))) { app.exportNow(withExt("gltf"), vars()); ui.stepDone[StepAnim] = true; ImGui::CloseCurrentPopup(); }
         if (WideButton(ICON_MD_FILE_DOWNLOAD "  Export clip JSON (curves + ARKit names)...", ImVec2(-1, 36 * S()))) { app.exportNow(withExt("json"), vars()); ui.stepDone[StepAnim] = true; ImGui::CloseCurrentPopup(); }
+        if (WideButton(ICON_MD_FACE "  Export ARKit mocap CSV (52 coefficients, 60 fps)...", ImVec2(-1, 36 * S()))) { app.exportNow(withExt("csv"), vars()); ui.stepDone[StepAnim] = true; ImGui::CloseCurrentPopup(); }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Same layout as Live Link Face / Face Cap recordings: Timecode, BlendShapeCount, EyeBlinkLeft ... RightEyeRoll");
+        ImGui::Spacing();
+        ImGui::Checkbox("Ship audio with the export (.wav sidecar + offsets)", &app.pipe.exportAudioSidecar);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Writes <out>.wav next to the file and records its start offset in glTF asset.extras.audio / a .audio.json manifest for FBX and CSV");
+        ImGui::BeginDisabled(!app.pipe.exportAudioSidecar);
+        ImGui::Checkbox("Embed WAV inside .glb", &app.pipe.embedAudioInGlb);
+        ImGui::EndDisabled();
+        ImGui::Spacing();
         if (WideButton(ICON_MD_SAVE "  Save current pose only...", ImVec2(-1, 36 * S()))) { std::string err; AnimationClip c = snapshotPose(app.pipe.rig); app.status = app.pipe.exportClip(c, ui.exportBuf, &err) ? "Exported pose to " + std::string(ui.exportBuf) : "Export failed: " + err; ImGui::CloseCurrentPopup(); }
         ImGui::Spacing();
         if (ImGui::Button("Cancel", ImVec2(-1, 26 * S()))) ImGui::CloseCurrentPopup();
@@ -983,9 +1022,6 @@ void viewportOverlay(Application& app) {
         ImVec2 sp(x0 + 14 * S(), vp->WorkPos.y + vp->WorkSize.y - 22 * S() - lift);
         dl->AddText(ui.fonts.small, ui.fonts.small->FontSize, sp, ImGui::ColorConvertFloat4ToU32(kAccent), app.status.c_str());
     }
-    int rigTabRequest = -1;
-    // bake / correctives
-    char bakeName[64] = "Custom"; bool bakeResidual = true, bakeSplit = false; int corrA = 0, corrB = 0;
     // timeline editor across the viewport bottom on the animation step; compact bar elsewhere
     if (app.pipe.clip.duration > 0 && ui.step == StepAnim && ui.timelineOpen) {
         timeline::draw(app, x0, x1, vp->WorkPos.y + vp->WorkSize.y - timeline::tlHeight(), vp->WorkPos.y + vp->WorkSize.y);
@@ -1022,7 +1058,7 @@ bool viewportContains(float x, float y) {
 }
 
 void drawPanels(Application& app) {
-    if (!ui.init) initPanels(app, 1.0f);
+    if (!ui.init) { initPanels(app, 1.0f); if (app.projectLoadedOnStart) { for (int i = 0; i < StepCount; ++i) ui.stepDone[i] = true; ui.step = app.pipe.clip.duration > 0 ? StepAnim : StepRig; std::strncpy(ui.modelBuf, app.pipe.modelPath.c_str(), sizeof ui.modelBuf - 1); std::strncpy(ui.audioBuf, app.pipe.audioPath.c_str(), sizeof ui.audioBuf - 1); std::strncpy(ui.projectBuf, app.options().projectPath.c_str(), sizeof ui.projectBuf - 1); } }
     // paint the viewport area's chrome background under everything (panels cover left/right)
     menuBar(app);
     leftColumn(app);

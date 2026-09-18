@@ -4,6 +4,7 @@
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <iomanip>
@@ -146,6 +147,8 @@ bool GltfExporter::exportScene(const Rig& rig, const std::vector<AnimationClip>&
     }
 
     // --- animations -----------------------------------------------------------
+    std::string audioExtrasForAnim;
+    if (opts.audio && !opts.audio->samples.empty()) { std::filesystem::path wp(path); wp.replace_extension(".wav"); audioExtrasForAnim = "\"audio\":{\"uri\":" + jsonStr(wp.filename().string()) + ",\"offset\":" + fnum(opts.audioOffset) + "}"; }
     for (const auto& clip : clips) {
         std::vector<std::string> samplers, channels;
         if (withMorph && !clip.blendCurves.empty()) {
@@ -181,7 +184,9 @@ bool GltfExporter::exportScene(const Rig& rig, const std::vector<AnimationClip>&
         for (size_t i = 0; i < samplers.size(); ++i) { if (i) a += ","; a += samplers[i]; }
         a += "],\"channels\":[";
         for (size_t i = 0; i < channels.size(); ++i) { if (i) a += ","; a += channels[i]; }
-        animations.push_back(a + "]}");
+        a += "]";
+        if (!audioExtrasForAnim.empty()) a += ",\"extras\":{" + audioExtrasForAnim + "}";
+        animations.push_back(a + "}");
     }
 
     // --- buffer views / accessors ----------------------------------------------
@@ -199,7 +204,20 @@ bool GltfExporter::exportScene(const Rig& rig, const std::vector<AnimationClip>&
         accessorsJson.push_back(s + "}");
     }
     auto join = [](const std::vector<std::string>& v) { std::string s; for (size_t i = 0; i < v.size(); ++i) { if (i) s += ","; s += v[i]; } return s; };
-    std::string json = "{\"asset\":{\"version\":\"2.0\",\"generator\":\"FacialRigging\"},\"scene\":0,\"scenes\":[{\"nodes\":" + arr(sceneRoots, inum) + "}],"
+    std::string audioExtras;
+    if (opts.audio && !opts.audio->samples.empty()) {
+        std::string uri = writeAudioSidecar(path, opts, false, nullptr);
+        if (!uri.empty()) {
+            audioExtras = "\"audio\":{\"uri\":" + jsonStr(uri) + ",\"offset\":" + fnum(opts.audioOffset) + ",\"sampleRate\":" + inum(opts.audio->sampleRate) + ",\"channels\":" + inum(opts.audio->channels) + ",\"duration\":" + fnum(float(opts.audio->duration()));
+            if (opts.embedAudioInGlb && binary) {
+                std::filesystem::path wavPath(path); wavPath.replace_extension(".wav");
+                std::ifstream wf(wavPath.string(), std::ios::binary); std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(wf)), {});
+                if (!bytes.empty()) { int view = bin.addView(bytes); audioExtras += ",\"bufferView\":" + inum(view) + ",\"mimeType\":\"audio/wav\""; }
+            }
+            audioExtras += "}";
+        }
+    }
+    std::string json = "{\"asset\":{\"version\":\"2.0\",\"generator\":\"FacialRigging\"" + (audioExtras.empty() ? std::string() : ",\"extras\":{" + audioExtras + "}") + "},\"scene\":0,\"scenes\":[{\"nodes\":" + arr(sceneRoots, inum) + "}],"
         "\"nodes\":[" + join(nodes) + "],\"meshes\":[" + join(meshes) + "]";
     if (!skins.empty()) json += ",\"skins\":[" + join(skins) + "]";
     if (!animations.empty()) json += ",\"animations\":[" + join(animations) + "]";

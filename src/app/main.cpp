@@ -14,6 +14,7 @@ int main(int argc, char** argv) {
         std::string a = argv[i];
         auto next = [&]() -> std::string { return i + 1 < argc ? argv[++i] : ""; };
         if (a == "--model") o.modelPath = next();
+        else if (a == "--project") o.projectPath = next();
         else if (a == "--audio") o.audioPath = next();
         else if (a == "--generate") o.autoGenerate = true;
         else if (a == "--export") o.exportOnStart = next();
@@ -42,7 +43,7 @@ int main(int argc, char** argv) {
         else if (a == "--msaa") o.msaa = std::stoi(next());
         else if (a == "--gaze") { o.gazeYaw = std::stof(next()); o.gazePitch = std::stof(next()); }
         else if (a == "-h" || a == "--help") {
-            std::puts("facial_rigging [--model face.obj] [--audio speech.wav] [--generate] [--export out/scene.fbx]\n"
+            std::puts("facial_rigging [--project s.frproj] [--model face.obj] [--audio speech.wav] [--generate] [--export out/scene.fbx]\n"
                       "               [--variation \"Increase smile\"]... [--size WxH] [--mapper rules|ml] [--model-pt model.pt] [--up auto|y|z] [--live] [--ui-scale F] [--step 0-4]\n"
                       "               [--emotion happy|sad|angry|surprised|disgusted] [--emotion-amount F] [--transcript \"text\"] [--head-motion F] [--gaze-motion F] [--shade 0-4] [--gaze YAW PITCH] [--msaa 0|2|4|8]\n"
                       "               [--headless] [--gles] [--render-frames N] [--frame-pattern out/frame_%03d.ppm]\n"

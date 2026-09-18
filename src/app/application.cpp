@@ -1,4 +1,5 @@
 #include "app/application.h"
+#include "app/project.h"
 #include "core/raycast.h"
 #include "render/gl.h"
 #include "ui/panels.h"
@@ -65,6 +66,7 @@ int Application::run() {
     if (opts_.gazeMotion >= 0) pipe.lipSync.gazeMotion = opts_.gazeMotion;
     meshRenderer.shadeMode = MeshRenderer::ShadeMode(std::clamp(opts_.shadeMode, 0, 4));
     msaaSamples = opts_.msaa;
+    if (!opts_.projectPath.empty() && loadProject(opts_.projectPath)) { projectLoadedOnStart = true; } else
     loadModel(opts_.modelPath);
     if (opts_.gazeYaw != 0.0f || opts_.gazePitch != 0.0f) pipe.rig.setGaze(opts_.gazeYaw, opts_.gazePitch);
     bool wantClip = !opts_.audioPath.empty() || opts_.autoGenerate || !opts_.exportOnStart.empty() || opts_.renderFrames > 0;
@@ -135,6 +137,7 @@ void Application::frame() {
         if (playTime > pipe.clip.duration) { if (loop) playTime = 0.0f; else { playTime = pipe.clip.duration; playing = false; } }
         pipe.clip.applyTo(pipe.rig, playTime);
     }
+    liveLinkTick();
 
     ImGui_ImplOpenGL3_NewFrame(); ImGui_ImplGlfw_NewFrame(); ImGui::NewFrame();
     handleViewportInput();
@@ -229,6 +232,7 @@ void Application::handleViewportInput() {
         if (ImGui::IsKeyPressed(ImGuiKey_Space) && pipe.clip.duration > 0) playing = !playing;
         for (int k = 0; k < 5; ++k) if (ImGui::IsKeyPressed(ImGuiKey(int(ImGuiKey_1) + k))) meshRenderer.shadeMode = MeshRenderer::ShadeMode(k);
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z)) undo();
+        if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S) && pipe.rig.mesh.vertexCount() > 0) saveProject("out/session.frproj");
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Y)) redo();
         if (ImGui::IsKeyPressed(ImGuiKey_Delete) && selectedPoint >= 0) { pushUndo("delete handle"); pipe.rig.removeControlPoint(selectedPoint); selectedPoint = -1; }
     }
@@ -426,7 +430,7 @@ void Application::reuploadWeights() { meshRenderer.uploadWeights(pipe.rig); }
 void Application::applyBrushDab(const glm::vec3& centre) {
     glm::vec3 viewDir = -glm::normalize(glm::vec3(glm::inverse(view_)[2]));
     int n = paintWeights(pipe.rig, brush, centre, viewDir, &adjacency, &mirrorMap);
-    if (n > 0) { brushStrokeChanges += n; reuploadWeights(); }
+    if (n > 0) { brushStrokeChanges += n; pipe.skinEdited = true; reuploadWeights(); }
 }
 
 void Application::reuploadMesh() {
@@ -468,6 +472,47 @@ void Application::exportNow(const std::string& path, const std::vector<std::stri
     std::string err;
     auto files = pipe.exportAll(path, ext, vars, &err);
     status = files.empty() ? "Export failed: " + err : "Exported " + std::to_string(files.size()) + " file(s): " + files.front();
+}
+
+bool Application::saveProject(const std::string& path) {
+    std::string err;
+    bool ok = fr::saveProject(path, pipe, ProjectSaveOptions{}, &err);
+    status = ok ? "Saved project " + path : "Save project failed: " + err;
+    return ok;
+}
+
+bool Application::loadProject(const std::string& path) {
+    std::string err;
+    if (!fr::loadProject(path, pipe, &err)) { status = "Open project failed: " + err; return false; }
+    notifyModelLoaded(true); notifyRigBuilt();
+    if (!pipe.audio.samples.empty()) { FeatureExtractor fx; pipe.features = fx.extract(pipe.audio); }
+    if (pipe.clip.duration > 0) notifyClipGenerated();
+    reuploadMesh(); reuploadWeights();
+    camera.target = 0.5f * (pipe.rig.mesh.boundsMin() + pipe.rig.mesh.boundsMax());
+    camera.distance = 2.2f * glm::length(pipe.rig.mesh.boundsMax() - pipe.rig.mesh.boundsMin());
+    selectedPoint = -1; undo_.clear(); redo_.clear(); playing = false; playTime = 0.0f;
+    status = pipe.log.empty() ? "" : pipe.log.back();
+    return true;
+}
+
+bool Application::liveLinkStart(const std::string& host, int port) {
+    LiveLinkSender::Settings s; s.host = host; s.port = uint16_t(port); s.frameRate = 60.0f;
+    std::string err;
+    if (!liveLink_.open(s, &err)) { status = "Live Link: " + err; return false; }
+    arkitMap_.build(pipe.rig, pipe.lipSync.jawBoneDegrees > 0 ? pipe.lipSync.jawBoneDegrees : 25.0f);
+    liveLinkFrame_ = 0; liveLinkNext_ = 0.0;
+    status = "Live Link streaming to " + host + ":" + std::to_string(port) + " (" + std::to_string(arkitMap_.mappedCount()) + "/52 ARKit shapes mapped)";
+    return true;
+}
+
+void Application::liveLinkStop() { liveLink_.close(); status = "Live Link stopped after " + std::to_string(liveLink_.framesSent()) + " frames"; }
+
+void Application::liveLinkTick() {
+    if (!liveLink_.isOpen()) return;
+    const double now = glfwGetTime();
+    if (now < liveLinkNext_) return;
+    liveLinkNext_ = now + 1.0 / double(liveLink_.settings().frameRate);
+    liveLink_.send(arkitFrameFromRig(pipe.rig, arkitMap_), liveLinkFrame_++);
 }
 
 } // namespace fr

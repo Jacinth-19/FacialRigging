@@ -1,5 +1,6 @@
 #pragma once
 #include "anim/animation_clip.h"
+#include "audio/wav_io.h"
 #include "rig/rig.h"
 #include <memory>
 #include <string>
@@ -12,7 +13,19 @@ struct ExportOptions {
     bool exportSkeleton = true;
     bool exportBlendShapes = true;
     bool asciiFbx = false;
+    /// Speech audio to ship with the animation. Written as a sidecar `<output>.wav` next to the
+    /// file and referenced from it: glTF `asset.extras.audio` + per-animation `extras.audio`
+    /// ({"uri","offset","sampleRate","duration"}), clip JSON top-level "audio", CSV/FBX via a
+    /// `<output>.audio.json` manifest (FBX has no portable audio slot). `audioOffset` is the clip
+    /// time (s) at which audio sample 0 plays (0 = both start together).
+    const AudioBuffer* audio = nullptr;
+    float audioOffset = 0.0f;
+    bool embedAudioInGlb = false;  ///< also pack the WAV bytes into the GLB binary chunk as a bufferView (extras.audio.bufferView)
 };
+
+/// Sidecar helper shared by exporters: writes `<path-without-ext>.wav` (+ optional manifest) and
+/// returns the relative uri ("" when opts.audio is null or writing failed).
+std::string writeAudioSidecar(const std::string& path, const ExportOptions& opts, bool writeManifest, std::string* error = nullptr);
 
 /// Common interface for scene exporters. Writes the bind mesh, skeleton, blendshape targets
 /// and one or more baked animation clips.
@@ -60,6 +73,14 @@ public:
     bool exportScene(const Rig&, const std::vector<AnimationClip>&, const std::string&, const ExportOptions&, std::string*) override;
 };
 bool loadClipsJson(const std::string& path, std::vector<AnimationClip>& out, std::string* error = nullptr);
+
+/// ARKit 52 "mocap CSV" (Live Link Face layout) at 60 fps; see export/arkit_livelink.h.
+class ArkitCsvExporter : public Exporter {
+public:
+    std::string formatName() const override { return "ARKit mocap CSV"; }
+    std::string fileExtension() const override { return ".csv"; }
+    bool exportScene(const Rig&, const std::vector<AnimationClip>&, const std::string&, const ExportOptions&, std::string*) override;
+};
 
 /// Picks an exporter by file extension (".fbx" / ".glb" / ".gltf" / ".json"). For ".fbx" the Autodesk SDK
 /// exporter is preferred when compiled in, otherwise the Assimp FBX writer; glTF is the last resort.

@@ -14,6 +14,10 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <chrono>
+#include <thread>
+#include "app/project.h"
+#include "export/arkit_livelink.h"
 
 using namespace fr;
 
@@ -23,7 +27,12 @@ Options:
   --model <file.obj>        3D face model (default: procedural head)
   --audio <file.wav>        speech clip (default: synthetic test speech)
   --output <pattern>        output base name (default: out/scene)
-  --format <fbx|glb|gltf|json>  export format (default: glb; fbx falls back to glb without the SDK; json = mesh-free curves)
+  --format <fbx|glb|gltf|json|csv>  export format (default: glb; fbx falls back to glb without the SDK; json = mesh-free curves; csv = ARKit 52-coefficient mocap sheet)
+  --project <file.frproj>   open a saved session (model, audio, rig edits, settings, clip) instead of --model/--audio
+  --save-project <file>     write the session as a project file after generating
+  --no-audio-sidecar        don't write <out>.wav + offsets next to exports
+  --embed-audio             pack the WAV into .glb (asset.extras.audio.bufferView)
+  --livelink <host:port> [<f>] stream the clip as ARKit Live Link UDP packets at real time (default speed 1.0), then exit
   --variation <text>        add a variation export (repeatable), e.g. "Increase smile", "intensity=1.3"
   --variations <n>          shorthand: n default variations (smile, brows, subtle, exaggerated)
   --mapper <rules|ml>       viseme mapper (default rules; ml needs a LibTorch build)
@@ -46,7 +55,7 @@ Options:
 }
 
 int main(int argc, char** argv) {
-    std::string model, audioPath, output = "out/scene", format = "glb", saveAudio, saveModel, clipIn;
+    std::string model, audioPath, output = "out/scene", format = "glb", saveAudio, saveModel, clipIn, project, saveProjectPath, liveLink; float liveSpeed = 1.0f;
     std::vector<std::string> variationTexts;
     bool dump = false;
     Pipeline pipe;
@@ -98,16 +107,27 @@ int main(int argc, char** argv) {
         else if (a == "--clip-in") clipIn = next();
         else if (a == "--transcript") pipe.transcript = next();
         else if (a == "--save-audio") saveAudio = next();
+        else if (a == "--project") project = next();
+        else if (a == "--save-project") saveProjectPath = next();
+        else if (a == "--no-audio-sidecar") pipe.exportAudioSidecar = false;
+        else if (a == "--embed-audio") pipe.embedAudioInGlb = true;
+        else if (a == "--livelink") { liveLink = next(); if (i + 1 < argc && argv[i + 1][0] != '-') liveSpeed = std::stof(next()); }
         else if (a == "--save-model") saveModel = next();
         else if (a == "--dump-features") dump = true;
         else if (a == "-h" || a == "--help") { usage(); return 0; }
         else { std::fprintf(stderr, "unknown option %s\n", a.c_str()); usage(); return 2; }
     }
     std::string err;
+    if (!project.empty()) {
+        if (!loadProject(project, pipe, &err)) { std::fprintf(stderr, "error: %s\n", err.c_str()); return 1; }
+        if (pipe.clip.duration <= 0 && !pipe.audio.samples.empty() && !pipe.generateAnimation()) { std::fprintf(stderr, "error: animation generation failed\n"); return 1; }
+    } else {
     if (!pipe.loadModel(model, &err)) { std::fprintf(stderr, "error: %s\n", err.c_str()); return 1; }
     pipe.buildDefaultRig();
+    }
     if (!saveModel.empty()) saveObj(saveModel, pipe.rig.mesh, &err);
-    if (!clipIn.empty()) {
+    if (!project.empty()) {
+    } else if (!clipIn.empty()) {
         std::vector<AnimationClip> clips;
         if (!loadClipsJson(clipIn, clips, &err) || clips.empty()) { std::fprintf(stderr, "error: %s\n", err.empty() ? "no clips in file" : err.c_str()); return 1; }
         pipe.clip = clips[0]; std::printf("loaded clip '%s' (%.2f s, %d frames) from %s\n", pipe.clip.name.c_str(), pipe.clip.duration, pipe.clip.frameCount(), clipIn.c_str());
@@ -120,6 +140,22 @@ int main(int argc, char** argv) {
         std::printf("time,rms,loudness,pitch,voicing,centroid,onset,mfcc0,mfcc1,mfcc2\n");
         for (auto& f : pipe.features.frames)
             std::printf("%.3f,%.4f,%.3f,%.1f,%.2f,%.0f,%d,%.2f,%.2f,%.2f\n", f.time, f.rms, f.loudness, f.pitchHz, f.voicing, f.spectralCentroid, int(f.onset), f.mfcc[0], f.mfcc[1], f.mfcc[2]);
+    }
+    if (!saveProjectPath.empty()) { if (saveProject(saveProjectPath, pipe, ProjectSaveOptions{}, &err)) std::printf("[fr] wrote project %s\n", saveProjectPath.c_str()); else std::fprintf(stderr, "error: %s\n", err.c_str()); }
+    if (!liveLink.empty()) {
+        auto colon = liveLink.find(':');
+        LiveLinkSender::Settings s; s.host = liveLink.substr(0, colon); if (colon != std::string::npos) s.port = uint16_t(std::stoi(liveLink.substr(colon + 1)));
+        LiveLinkSender sender; if (!sender.open(s, &err)) { std::fprintf(stderr, "error: %s\n", err.c_str()); return 1; }
+        ArkitMapping map; map.build(pipe.rig, pipe.lipSync.jawBoneDegrees > 0 ? pipe.lipSync.jawBoneDegrees : 25.0f);
+        std::printf("[fr] Live Link -> %s:%u, %d/52 shapes mapped, %.2fs clip at %.2fx\n", s.host.c_str(), unsigned(s.port), map.mappedCount(), pipe.clip.duration, liveSpeed);
+        const float dtF = 1.0f / s.frameRate; uint32_t n = 0;
+        auto t0 = std::chrono::steady_clock::now();
+        for (float t = 0; t <= pipe.clip.duration; t += dtF, ++n) {
+            sender.send(arkitFrameFromClip(pipe.rig, map, pipe.clip, t), n);
+            auto due = t0 + std::chrono::microseconds(int64_t(t / liveSpeed * 1e6f)); std::this_thread::sleep_until(due);
+        }
+        std::printf("[fr] sent %llu frames\n", (unsigned long long)sender.framesSent());
+        return 0;
     }
     std::vector<Variation> vars;
     for (auto& t : variationTexts) vars.push_back(parseVariation(t));

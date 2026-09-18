@@ -208,4 +208,5 @@ bool AssimpFbxExporter::exportScene(const Rig& rig, const std::vector<AnimationC
     return ok;
 }
 
-} // namespace fr
+} // namespace fr    writeAudioSidecar(path, opts, true, nullptr);
+

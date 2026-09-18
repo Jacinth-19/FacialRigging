@@ -16,6 +16,8 @@
 #define ICON_MD_PLAY_ARROW "\xee\x80\xb7"  // play_arrow U+E037
 #define ICON_MD_PAUSE "\xee\x80\xb4"  // pause U+E034
 #define ICON_MD_STOP "\xee\x81\x87"  // stop U+E047
+#define ICON_MD_SKIP_PREVIOUS "\xee\x81\x85"  // skip_previous U+E045
+#define ICON_MD_SKIP_NEXT "\xee\x81\x84"  // skip_next U+E044
 #define ICON_MD_LOOP "\xee\x80\xa8"  // loop U+E028
 #define ICON_MD_FOLDER_OPEN "\xee\x8b\x88"  // folder_open U+E2C8
 #define ICON_MD_FILE_DOWNLOAD "\xee\x8b\x84"  // file_download U+E2C4

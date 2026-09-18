@@ -326,17 +326,19 @@ void Application::toggleLive(int device) {
     else { liveError = err; status = "Live capture failed: " + err; }
 }
 
-void Application::pushUndo() { undo_.push_back({pipe.rig.controlPoints, pipe.rig.blendWeights()}); if (undo_.size() > 64) undo_.erase(undo_.begin()); redo_.clear(); }
+void Application::pushUndo() { undo_.push_back({pipe.rig.controlPoints, pipe.rig.blendWeights(), pipe.clip}); if (undo_.size() > 64) undo_.erase(undo_.begin()); redo_.clear(); }
 void Application::undo() {
     if (undo_.empty()) return;
-    redo_.push_back({pipe.rig.controlPoints, pipe.rig.blendWeights()});
-    pipe.rig.controlPoints = undo_.back().controlPoints; pipe.rig.setBlendWeights(undo_.back().blendWeights); undo_.pop_back();
+    redo_.push_back({pipe.rig.controlPoints, pipe.rig.blendWeights(), pipe.clip});
+    pipe.rig.controlPoints = undo_.back().controlPoints; pipe.rig.setBlendWeights(undo_.back().blendWeights); pipe.clip = undo_.back().clip; undo_.pop_back();
+    if (pipe.clip.duration > 0) pipe.clip.applyTo(pipe.rig, playTime);
     if (selectedPoint >= int(pipe.rig.controlPoints.size())) selectedPoint = -1;
 }
 void Application::redo() {
     if (redo_.empty()) return;
-    undo_.push_back({pipe.rig.controlPoints, pipe.rig.blendWeights()});
-    pipe.rig.controlPoints = redo_.back().controlPoints; pipe.rig.setBlendWeights(redo_.back().blendWeights); redo_.pop_back();
+    undo_.push_back({pipe.rig.controlPoints, pipe.rig.blendWeights(), pipe.clip});
+    pipe.rig.controlPoints = redo_.back().controlPoints; pipe.rig.setBlendWeights(redo_.back().blendWeights); pipe.clip = redo_.back().clip; redo_.pop_back();
+    if (pipe.clip.duration > 0) pipe.clip.applyTo(pipe.rig, playTime);
 }
 
 void Application::reuploadMesh() { meshRenderer.upload(pipe.rig); }

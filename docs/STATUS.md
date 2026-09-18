@@ -30,6 +30,7 @@
 | Transcript forced alignment | ✅ `src/audio/g2p.*` (**CMUdict 126 k words** in `assets/lexicon` + rules for OOV) → `PhonemeAligner` Viterbi over the mapper posteriors with duration priors, optional inter-word silence and penalised phone deletion; `Pipeline::transcript`; benchmark `fr_eval_alignment` on TIMIT TEST/DR1: **65.9 %** frame viseme accuracy from text (classifier alone 66.1 %; 73.3 % with the true phone sequence), viseme boundary error **median 14 ms**, p90 56 ms | CLI + GUI `--transcript` (Lip-sync page text box shows words/phones/coverage) |
 | Stochastic idle motion | ✅ `src/anim/idle_motion.*`: Weibull-renewal blinks (faster while speaking, extra draw at pause onsets, double blinks), breathing with inhale cue | |
 | Tongue | ✅ `Tongue` bone (child of Jaw) from the tongue part; `Rig::setTongue(up,out)` driven by the phone class | |
+| Timeline editor | ✅ viewport dope-sheet (`panels.cpp` `timeline::`): ruler, word/phone/viseme lanes, paintable curves, range selection with gain/offset/smooth/flatten, zoom/scroll, undo of clip edits | Bone-curve editing and key-level (non-baked) editing not yet |
 | Audio encryption at rest | ❌ | Only needed once recordings are persisted |
 
 ## Running here (sandbox, no GPU / no X11)

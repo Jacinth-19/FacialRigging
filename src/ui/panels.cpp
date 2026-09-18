@@ -5,8 +5,10 @@
 #include "ui/theme.h"
 #include "app/application.h"
 #include "audio/viseme_mapper.h"
+#include "audio/phoneme_aligner.h"
 #include "audio/ml_viseme_mapper.h"
 #include <algorithm>
+#include <functional>
 #include <cstring>
 #include <cstdio>
 #include <imgui.h>
@@ -38,6 +40,13 @@ struct UiState {
     bool showExportDialog = false, showImportClip = false;
     std::vector<AudioDevice> devs; bool devsListed = false; int devSel = -1; std::string devErr;
     Fonts fonts; float scale = 1.0f;
+    // timeline editor
+    bool timelineOpen = true; float tlZoom = 1.0f, tlScroll = 0.0f;   // seconds visible = duration / zoom; scroll in seconds
+    float selA = -1.0f, selB = -1.0f;                                   // time-range selection (seconds), selA<0 = none
+    int tlCurve = 0;                                                    // active curve in the editor
+    bool tlPainting = false; float tlLastT = 0, tlLastV = 0;
+    float tlGain = 1.0f, tlOffset = 0.0f; int tlSmooth = 1;
+    bool tlShow[16] = {true, true, true, false, false, true, false, false, false, false, false, false, false, false, false, false};
 };
 UiState ui;
 
@@ -544,6 +553,8 @@ void pageAnim(Application& app) {
         ImGui::SameLine(); ImGui::Checkbox("Loop", &app.loop);
         ImGui::SetNextItemWidth(-1);
         if (ImGui::SliderFloat("##time", &app.playTime, 0.0f, p.clip.duration, "%.2f s")) p.clip.applyTo(p.rig, app.playTime);
+        if (ImGui::Checkbox("Timeline editor (viewport)", &ui.timelineOpen)) {}
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Words / phones / visemes lanes and paintable curves under the viewport.\nEdits are undoable (Ctrl+Z).");
         SectionLabel("Curves :");
         auto curve = [&](const char* n) { if (auto* c = p.clip.findBlendCurve(n)) { ImGui::PlotLines(("##" + std::string(n)).c_str(), c->values.data(), int(c->values.size()), 0, n, 0, 1, ImVec2(-1, 38 * S())); } };
         curve(shapes::JawOpen); curve(shapes::MouthSmile); curve(shapes::MouthPucker); curve(shapes::BrowRaise);
@@ -584,6 +595,199 @@ void pageAnim(Application& app) {
     if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 10) ImGui::SetScrollHereY(1.0f);
     ImGui::PopFont(); ImGui::EndChild(); ImGui::PopStyleColor();
 }
+
+
+// -------------------------------------------------------------------------------------- timeline
+// Dope-sheet style editor across the viewport bottom: aligned words / phones / visemes lanes, the
+// baked curve of the active blendshape (drag to paint, shift-drag to select a range) and a
+// playhead. Range operations (gain / offset / smooth / flatten) act on the selection or the whole clip.
+namespace timeline {
+
+float tlHeight() { return 262 * S(); }
+
+void rangeApply(Application& app, const char* what, const std::function<void(Curve<float>&, size_t)>& fn) {
+    Pipeline& p = app.pipe; if (p.clip.duration <= 0) return;
+    app.pushUndo();
+    float a = ui.selA >= 0 ? std::min(ui.selA, ui.selB) : 0.0f, b = ui.selA >= 0 ? std::max(ui.selA, ui.selB) : p.clip.duration;
+    int n = 0;
+    for (size_t ci = 0; ci < p.clip.blendCurves.size(); ++ci) {
+        if (ci >= 16 || !ui.tlShow[ci]) continue;
+        auto& c = p.clip.blendCurves[ci];
+        for (size_t k = 0; k < c.times.size(); ++k) if (c.times[k] >= a && c.times[k] <= b) { fn(c, k); ++n; }
+    }
+    for (auto& c : p.clip.blendCurves) for (auto& v : c.values) v = std::clamp(v, 0.0f, 1.0f);
+    p.clip.applyTo(p.rig, app.playTime);
+    char buf[128]; std::snprintf(buf, sizeof buf, "%s: %d keys in %.2f-%.2f s", what, n, a, b); app.status = buf;
+}
+
+void draw(Application& app, float x0, float x1, float yTop, float yBot) {
+    Pipeline& p = app.pipe; AnimationClip& clip = p.clip;
+    ImGui::SetNextWindowPos(ImVec2(x0, yTop)); ImGui::SetNextWindowSize(ImVec2(x1 - x0, yBot - yTop));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8 * S(), 6 * S()));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.12f, 0.12f, 0.12f, 0.96f));
+    ImGui::Begin("##timeline", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollWithMouse);
+    // ---- header row: transport, time, zoom, curve chooser, range ops
+    if (PrimaryButton(app.playing ? ICON_MD_PAUSE : ICON_MD_PLAY_ARROW, ImVec2(28 * S(), 24 * S()))) app.playing = !app.playing;
+    ImGui::SameLine(); if (WideButton(ICON_MD_STOP, ImVec2(28 * S(), 24 * S()))) { app.playing = false; app.playTime = 0; clip.applyTo(p.rig, 0); }
+    ImGui::SameLine(); if (WideButton(ICON_MD_SKIP_PREVIOUS, ImVec2(28 * S(), 24 * S()))) { app.playTime = std::max(0.0f, app.playTime - 1.0f / clip.frameRate); clip.applyTo(p.rig, app.playTime); }
+    ImGui::SameLine(); if (WideButton(ICON_MD_SKIP_NEXT, ImVec2(28 * S(), 24 * S()))) { app.playTime = std::min(clip.duration, app.playTime + 1.0f / clip.frameRate); clip.applyTo(p.rig, app.playTime); }
+    ImGui::SameLine(); ImGui::Checkbox("Loop", &app.loop);
+    ImGui::SameLine(); ImGui::TextColored(kAccent, "%6.2f s", app.playTime); ImGui::SameLine(); ImGui::TextColored(kTextDim, "f %d / %d", int(app.playTime * clip.frameRate + 0.5f), clip.frameCount() - 1);
+    ImGui::SameLine(0, 16 * S()); ImGui::SetNextItemWidth(110 * S()); ImGui::SliderFloat("##zoom", &ui.tlZoom, 1.0f, 16.0f, "zoom %.1fx", ImGuiSliderFlags_Logarithmic);
+    ImGui::SameLine(0, 16 * S()); ImGui::TextColored(kTextDim, "Curve");
+    ImGui::SameLine(); ImGui::SetNextItemWidth(130 * S());
+    if (ImGui::BeginCombo("##tlcurve", clip.blendCurves.empty() ? "-" : clip.blendCurves[size_t(std::clamp(ui.tlCurve, 0, int(clip.blendCurves.size()) - 1))].target.c_str())) {
+        for (size_t i = 0; i < clip.blendCurves.size() && i < 16; ++i) {
+            ImGui::PushID(int(i)); ImGui::Checkbox("##vis", &ui.tlShow[i]); ImGui::SameLine();
+            if (ImGui::Selectable(clip.blendCurves[i].target.c_str(), int(i) == ui.tlCurve)) { ui.tlCurve = int(i); ui.tlShow[i] = true; }
+            ImGui::PopID();
+        }
+        ImGui::EndCombo();
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Active curve is painted by dragging in the curve lane.\nTicked curves are drawn and affected by the range operations.");
+    ImGui::SameLine(); if (WideButton(ICON_MD_CLOSE, ImVec2(24 * S(), 24 * S()))) ui.timelineOpen = false;
+    // second row: range operations
+    ImGui::TextColored(kTextDim, "Range ops"); if (ImGui::IsItemHovered()) ImGui::SetTooltip("Act on the ticked curves inside the shift-drag selection (or the whole clip). Undoable.");
+    ImGui::SameLine(0, 10 * S()); ImGui::SetNextItemWidth(80 * S()); ImGui::DragFloat("##gain", &ui.tlGain, 0.01f, 0.0f, 3.0f, "x %.2f");
+    ImGui::SameLine(); if (WideButton("Gain", ImVec2(0, 24 * S()))) { float g = ui.tlGain; rangeApply(app, "Gain", [g](Curve<float>& c, size_t k) { c.values[k] *= g; }); }
+    ImGui::SameLine(); ImGui::SetNextItemWidth(80 * S()); ImGui::DragFloat("##off", &ui.tlOffset, 0.01f, -1.0f, 1.0f, "%+.2f");
+    ImGui::SameLine(); if (WideButton("Offset", ImVec2(0, 24 * S()))) { float o = ui.tlOffset; rangeApply(app, "Offset", [o](Curve<float>& c, size_t k) { c.values[k] += o; }); }
+    ImGui::SameLine(); ImGui::SetNextItemWidth(70 * S()); ImGui::SliderInt("##sm", &ui.tlSmooth, 1, 6, "r=%d");
+    ImGui::SameLine(); if (WideButton("Smooth", ImVec2(0, 24 * S()))) {
+        int r = ui.tlSmooth;
+        // box filter using a copy so in-place edits don't cascade
+        std::vector<std::vector<float>> src; for (auto& c : clip.blendCurves) src.push_back(c.values);
+        rangeApply(app, "Smooth", [&src, &clip, r](Curve<float>& c, size_t k) {
+            size_t ci = size_t(&c - clip.blendCurves.data()); const auto& v = src[ci]; float sum = 0; int n = 0;
+            for (int d = -r; d <= r; ++d) { long j = long(k) + d; if (j >= 0 && j < long(v.size())) { sum += v[size_t(j)]; ++n; } }
+            c.values[k] = n ? sum / float(n) : c.values[k]; });
+    }
+    ImGui::SameLine(); if (WideButton("Flatten", ImVec2(0, 24 * S()))) rangeApply(app, "Flatten", [](Curve<float>& c, size_t k) { c.values[k] = 0.0f; });
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Zero the ticked curves inside the selection (shift-drag in a lane to select; click empty to clear).");
+    ImGui::SameLine(); if (WideButton("Clear sel.", ImVec2(0, 24 * S()), ui.selA >= 0)) ui.selA = ui.selB = -1;
+    if (ui.selA >= 0) { ImGui::SameLine(); ImGui::TextColored(kAccent, "%.2f - %.2f s", std::min(ui.selA, ui.selB), std::max(ui.selA, ui.selB)); }
+
+    // ---- lanes
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float labelW = 74 * S();
+    ImVec2 area = ImGui::GetCursorScreenPos(); area.y += 2 * S();
+    const float laneX0 = area.x + labelW, laneX1 = x1 - 10 * S(), laneW = std::max(10.0f, laneX1 - laneX0);
+    const float visibleSec = clip.duration / ui.tlZoom;
+    ui.tlScroll = std::clamp(ui.tlScroll, 0.0f, std::max(0.0f, clip.duration - visibleSec));
+    // keep playhead visible while playing
+    if (app.playing && (app.playTime < ui.tlScroll || app.playTime > ui.tlScroll + visibleSec)) ui.tlScroll = std::clamp(app.playTime - visibleSec * 0.1f, 0.0f, std::max(0.0f, clip.duration - visibleSec));
+    auto tx = [&](double t) { return laneX0 + float((t - ui.tlScroll) / visibleSec) * laneW; };
+    auto xt = [&](float x) { return std::clamp(ui.tlScroll + (x - laneX0) / laneW * visibleSec, 0.0f, clip.duration); };
+    const ImU32 colLane = IM_COL32(28, 28, 28, 255), colGrid = IM_COL32(60, 60, 60, 255), colText = ImGui::ColorConvertFloat4ToU32(kText), colDim = ImGui::ColorConvertFloat4ToU32(kTextDim);
+    const ImU32 colAccent = ImGui::ColorConvertFloat4ToU32(kAccent), colSel = IM_COL32(139, 199, 46, 40);
+    float y = area.y;
+    const float rulerH = 16 * S(), laneH = 18 * S(), curveH = std::max(40.0f, yBot - 8 * S() - y - rulerH - 3 * laneH - 4 * S());
+    // ruler
+    dl->AddRectFilled(ImVec2(laneX0, y), ImVec2(laneX1, y + rulerH), colLane);
+    {
+        float step = 0.1f; while (visibleSec / step > laneW / (44 * S())) step *= (std::fabs(std::fmod(std::log10(step), 1.0f)) < 1e-3f ? 2.0f : 2.5f);
+        for (float t = std::floor(ui.tlScroll / step) * step; t <= ui.tlScroll + visibleSec + 1e-4f; t += step) {
+            float x = tx(t); if (x < laneX0 - 1 || x > laneX1 + 1) continue;
+            dl->AddLine(ImVec2(x, y + rulerH - 5 * S()), ImVec2(x, y + rulerH), colGrid);
+            char b[16]; std::snprintf(b, sizeof b, "%.2f", t); dl->AddText(ui.fonts.small, ui.fonts.small->FontSize, ImVec2(x + 2, y), colDim, b);
+        }
+    }
+    y += rulerH + 1 * S();
+    // word / phone / viseme lanes
+    struct Lane { const char* name; int kind; }; const Lane lanes[3] = {{"Words", 0}, {"Phones", 1}, {"Visemes", 2}};
+    const ImU32 visCol[] = {IM_COL32(70, 70, 70, 255), IM_COL32(200, 120, 60, 255), IM_COL32(80, 170, 220, 255), IM_COL32(110, 150, 230, 255), IM_COL32(220, 90, 120, 255), IM_COL32(200, 70, 190, 255), IM_COL32(230, 200, 60, 255), IM_COL32(120, 210, 120, 255), IM_COL32(170, 170, 90, 255)};
+    for (const Lane& L : lanes) {
+        dl->AddText(ImVec2(area.x, y + 2 * S()), colDim, L.name);
+        dl->AddRectFilled(ImVec2(laneX0, y), ImVec2(laneX1, y + laneH), colLane);
+        auto block = [&](double t0, double t1, const char* label, ImU32 col, bool outline) {
+            float xa = std::max(tx(t0), laneX0), xb = std::min(tx(t1), laneX1); if (xb - xa < 1) return;
+            if (outline) { dl->AddRectFilled(ImVec2(xa, y + 2 * S()), ImVec2(xb, y + laneH - 2 * S()), IM_COL32(50, 50, 50, 255), 3 * S()); dl->AddRect(ImVec2(xa, y + 2 * S()), ImVec2(xb, y + laneH - 2 * S()), col, 3 * S()); }
+            else dl->AddRectFilled(ImVec2(xa, y + 2 * S()), ImVec2(xb, y + laneH - 2 * S()), col, 2 * S());
+            ImVec2 ts = ImGui::CalcTextSize(label);
+            if (ts.x + 6 * S() < xb - xa) { dl->PushClipRect(ImVec2(xa, y), ImVec2(xb, y + laneH), true); dl->AddText(ui.fonts.small, ui.fonts.small->FontSize, ImVec2(xa + 3 * S(), y + 3 * S()), outline ? colText : IM_COL32(15, 15, 15, 255), label); dl->PopClipRect(); }
+        };
+        if (L.kind == 0) {
+            const auto& al = p.lastAlignment;
+            if (al.phones.empty()) dl->AddText(ui.fonts.small, ui.fonts.small->FontSize, ImVec2(laneX0 + 6 * S(), y + 3 * S()), colDim, "no transcript - enter one in step 4 to see words and phones");
+            for (size_t w = 0; w < al.words.size(); ++w) {
+                double t0 = -1, t1 = -1; for (const auto& ph : al.phones) if (ph.wordIndex == int(w)) { if (t0 < 0) t0 = ph.start; t1 = ph.end; }
+                if (t0 >= 0) block(t0, t1, al.words[w].text.c_str(), colAccent, true);
+            }
+        } else if (L.kind == 1) {
+            for (const auto& ph : p.lastAlignment.phones) if (ph.wordIndex >= 0) block(ph.start, ph.end, ph.phone.c_str(), visCol[size_t(ph.viseme) % 9], false);
+        } else {
+            for (const auto& sg : p.lastSegments) if (sg.viseme != Viseme::Silence) block(sg.start, sg.end, visemeName(sg.viseme), visCol[size_t(sg.viseme) % 9], false);
+        }
+        y += laneH + 1 * S();
+    }
+    // curve lane
+    const float cy0 = y, cy1 = y + curveH;
+    dl->AddRectFilled(ImVec2(laneX0, cy0), ImVec2(laneX1, cy1), colLane);
+    for (int g = 1; g < 4; ++g) dl->AddLine(ImVec2(laneX0, cy1 - curveH * 0.25f * g), ImVec2(laneX1, cy1 - curveH * 0.25f * g), colGrid);
+    dl->AddText(ui.fonts.small, ui.fonts.small->FontSize, ImVec2(area.x, cy0), colDim, "1.0"); dl->AddText(ui.fonts.small, ui.fonts.small->FontSize, ImVec2(area.x, cy1 - 12 * S()), colDim, "0.0");
+    if (ui.selA >= 0) dl->AddRectFilled(ImVec2(std::max(tx(std::min(ui.selA, ui.selB)), laneX0), area.y), ImVec2(std::min(tx(std::max(ui.selA, ui.selB)), laneX1), cy1), colSel);
+    for (size_t ci = 0; ci < clip.blendCurves.size() && ci < 16; ++ci) {
+        if (!ui.tlShow[ci]) continue;
+        const auto& c = clip.blendCurves[ci]; if (c.times.size() < 2) continue;
+        bool active = int(ci) == ui.tlCurve;
+        ImU32 col = active ? colAccent : IM_COL32(140 + 40 * (ci % 3), 120 + 30 * (ci % 4), 200 - 30 * (ci % 5), active ? 255 : 130);
+        ImVec2 prev; bool have = false;
+        size_t k0 = 0; while (k0 + 1 < c.times.size() && c.times[k0 + 1] < ui.tlScroll) ++k0;
+        for (size_t k = k0; k < c.times.size(); ++k) {
+            float x = tx(c.times[k]); if (x > laneX1 + 2) break;
+            ImVec2 pt(x, cy1 - std::clamp(c.values[k], 0.0f, 1.0f) * (curveH - 2 * S()) - 1 * S());
+            if (have) dl->AddLine(prev, pt, col, active ? 2.0f * S() : 1.0f * S());
+            prev = pt; have = true;
+        }
+        if (active) { ImVec2 ts = ImGui::CalcTextSize(c.target.c_str()); dl->AddText(ImVec2(laneX1 - ts.x - 6 * S(), cy0 + 3 * S()), col, c.target.c_str()); }
+    }
+    // playhead
+    { float px = tx(app.playTime); if (px >= laneX0 && px <= laneX1) { dl->AddLine(ImVec2(px, area.y), ImVec2(px, cy1), IM_COL32(255, 255, 255, 220), 1.5f * S()); dl->AddTriangleFilled(ImVec2(px - 5 * S(), area.y), ImVec2(px + 5 * S(), area.y), ImVec2(px, area.y + 7 * S()), IM_COL32(255, 255, 255, 220)); } }
+
+    // ---- interaction: invisible button over all lanes
+    ImGui::SetCursorScreenPos(ImVec2(laneX0, area.y));
+    ImGui::InvisibleButton("##lanes", ImVec2(laneW, cy1 - area.y));
+    const bool hovered = ImGui::IsItemHovered(), activeBtn = ImGui::IsItemActive();
+    ImGuiIO& io = ImGui::GetIO();
+    if (hovered && io.MouseWheel != 0.0f) {
+        if (io.KeyCtrl) { float tAt = xt(io.MousePos.x); ui.tlZoom = std::clamp(ui.tlZoom * (io.MouseWheel > 0 ? 1.25f : 0.8f), 1.0f, 16.0f); float vs = clip.duration / ui.tlZoom; ui.tlScroll = std::clamp(tAt - (io.MousePos.x - laneX0) / laneW * vs, 0.0f, std::max(0.0f, clip.duration - vs)); }
+        else ui.tlScroll = std::clamp(ui.tlScroll - io.MouseWheel * visibleSec * 0.1f, 0.0f, std::max(0.0f, clip.duration - visibleSec));
+    }
+    const bool inCurve = io.MousePos.y >= cy0 && io.MousePos.y <= cy1;
+    if (ImGui::IsItemActivated()) {
+        ui.tlPainting = false;
+        if (io.KeyShift) { ui.selA = ui.selB = xt(io.MousePos.x); }
+        else if (inCurve && !clip.blendCurves.empty() && !io.KeyAlt) {
+            app.pushUndo(); ui.tlPainting = true; ui.tlLastT = xt(io.MousePos.x); ui.tlLastV = std::clamp((cy1 - io.MousePos.y) / (curveH - 2 * S()), 0.0f, 1.0f);
+            app.playing = false;
+        } else { ui.selA = ui.selB = -1; app.playing = false; }
+    }
+    if (activeBtn) {
+        float t = xt(io.MousePos.x);
+        if (io.KeyShift && ui.selA >= 0 && !ui.tlPainting) ui.selB = t;
+        else if (ui.tlPainting) {
+            // paint: write values along the mouse segment onto the active curve (frame keys)
+            auto& c = clip.blendCurves[size_t(std::clamp(ui.tlCurve, 0, int(clip.blendCurves.size()) - 1))];
+            float v = std::clamp((cy1 - io.MousePos.y) / (curveH - 2 * S()), 0.0f, 1.0f);
+            float ta = std::min(ui.tlLastT, t), tb = std::max(ui.tlLastT, t);
+            for (size_t k = 0; k < c.times.size(); ++k) {
+                float ct = c.times[k]; if (ct < ta - 1e-4f || ct > tb + 1e-4f) continue;
+                float u = tb - ta > 1e-5f ? (ct - ta) / (tb - ta) : 1.0f; if (t < ui.tlLastT) u = 1.0f - u;
+                c.values[k] = ui.tlLastV + (v - ui.tlLastV) * u;
+            }
+            ui.tlLastT = t; ui.tlLastV = v; app.playTime = t; clip.applyTo(p.rig, t);
+        } else { app.playTime = t; clip.applyTo(p.rig, t); }
+    }
+    if (hovered && !activeBtn) {
+        float t = xt(io.MousePos.x); char b[96];
+        const char* ph = ""; for (const auto& x : p.lastAlignment.phones) if (t >= x.start && t < x.end) { ph = x.phone.c_str(); break; }
+        const char* vs = ""; for (const auto& x : p.lastSegments) if (t >= x.start && t < x.end) { vs = visemeName(x.viseme); break; }
+        std::snprintf(b, sizeof b, "%.3f s  f %d%s%s%s%s", t, int(t * clip.frameRate + 0.5f), *ph ? "   phone " : "", ph, *vs ? "   viseme " : "", vs);
+        ImGui::SetTooltip("%s\nDrag in the curve lane to paint  |  Shift-drag: select range  |  Alt-drag / drag ruler: scrub  |  Ctrl+wheel: zoom", b);
+    }
+    ImGui::End(); ImGui::PopStyleColor(); ImGui::PopStyleVar();
+}
+} // namespace timeline
 
 // AccuRIG-style modal: "Export FBX..." / "Export glTF..." buttons.
 void exportDialog(Application& app) {
@@ -675,11 +879,14 @@ void viewportOverlay(Application& app) {
     ImGui::End();
     // status line bottom-left of viewport
     if (!app.status.empty()) {
-        ImVec2 sp(x0 + 14 * S(), vp->WorkPos.y + vp->WorkSize.y - 22 * S());
+        float lift = (app.pipe.clip.duration > 0 && ui.step == StepAnim && ui.timelineOpen) ? timeline::tlHeight() : 0.0f;
+        ImVec2 sp(x0 + 14 * S(), vp->WorkPos.y + vp->WorkSize.y - 22 * S() - lift);
         dl->AddText(ui.fonts.small, ui.fonts.small->FontSize, sp, ImGui::ColorConvertFloat4ToU32(kAccent), app.status.c_str());
     }
-    // playback bar across the viewport bottom while a clip exists
-    if (app.pipe.clip.duration > 0 && ui.step != StepCheck) {
+    // timeline editor across the viewport bottom on the animation step; compact bar elsewhere
+    if (app.pipe.clip.duration > 0 && ui.step == StepAnim && ui.timelineOpen) {
+        timeline::draw(app, x0, x1, vp->WorkPos.y + vp->WorkSize.y - timeline::tlHeight(), vp->WorkPos.y + vp->WorkSize.y);
+    } else if (app.pipe.clip.duration > 0 && ui.step != StepCheck) {
         ImGui::SetNextWindowPos(ImVec2((x0 + x1) * 0.5f, vp->WorkPos.y + vp->WorkSize.y - 44 * S()), ImGuiCond_Always, ImVec2(0.5f, 0));
         ImGui::SetNextWindowSize(ImVec2(std::min(520 * S(), x1 - x0 - 80 * S()), 0));
         ImGui::SetNextWindowBgAlpha(0.85f);

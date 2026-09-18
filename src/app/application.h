@@ -13,7 +13,7 @@ struct GLFWwindow;
 
 namespace fr {
 
-struct UndoState { std::vector<ControlPoint> controlPoints; std::vector<float> blendWeights; };
+struct UndoState { std::vector<ControlPoint> controlPoints; std::vector<float> blendWeights; AnimationClip clip; };
 
 /// Interactive tool: viewport + ImGui panels. Owns a Pipeline (rig/audio/clip) and edits it.
 class Application {

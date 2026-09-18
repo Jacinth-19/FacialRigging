@@ -136,6 +136,15 @@ model runs in every build; `FR_WITH_TORCH` additionally allows TorchScript `.pt`
   extra blink at pause onsets, occasional double blinks) plus breathing (`src/anim/idle_motion.*`).
 - **Tongue.** ICT-style heads with a tongue part get a `Tongue` bone under `Jaw`; `L/T/D/N/TH` phones raise it.
 
+### Timeline editor
+
+On *Check Animation* a dope-sheet opens under the viewport: a time ruler, **Words / Phones /
+Visemes** lanes (from the forced alignment and the segments actually used for the mouth), and a
+curve lane for the baked blendshape channels. Drag in the curve lane to **paint** the active curve,
+Shift-drag to select a time range, Alt-drag / drag the ruler to scrub, Ctrl+wheel to zoom.
+**Gain / Offset / Smooth / Flatten** act on the ticked curves inside the selection (or the whole
+clip); all edits are undoable (Ctrl+Z) and are what gets exported.
+
 ### Performance layer, expressions, gaze
 
 - **Eye bones + look-at.** Models with separate `EyeL`/`EyeR` parts (ICT head) get `EyeL`/`EyeR`

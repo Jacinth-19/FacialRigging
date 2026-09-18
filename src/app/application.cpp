@@ -3,6 +3,7 @@
 #include "core/raycast.h"
 #include "render/gl.h"
 #include "ui/panels.h"
+#include "ui/graph_editor.h"
 #include <GLFW/glfw3.h>
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
@@ -45,6 +46,7 @@ bool Application::initWindow() {
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
+    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;   // graph editor & reference panel can dock together / float
     ImGuiIO& io = ImGui::GetIO(); io.IniFilename = nullptr; // fixed shell layout - nothing to persist
     float xs = 1.0f, ys = 1.0f; if (!opts_.headless) glfwGetWindowContentScale(window_, &xs, &ys);
     initPanels(*this, std::max(1.0f, xs) * opts_.uiScale);
@@ -92,7 +94,9 @@ int Application::run() {
         if (!pipe.clip.boneRotations.empty()) { KeyCurve& h = L.get(pipe.clip.boneRotations[0].target, 0); h.addKey(0.55f * d, 0.0f); h.addKey(0.70f * d, 8.0f); h.addKey(0.85f * d, 0.0f); }
         setTimelineKeyMode(1, 1); if (opts_.keysDemoChannel > 0) setTimelineChannel(opts_.keysDemoChannel);
         playTime = 0.40f * d; pipe.clip.applyTo(pipe.rig, playTime);
+        if (opts_.graphDemo) { KeyCurve& s = L.get(shapes::MouthSmile); s.addKey(0.10f * d, 0.0f); s.addKey(0.25f * d, 0.5f); s.addKey(0.60f * d, 0.2f); graph::showChannel(0); graph::showChannel(1); if (!pipe.clip.boneRotations.empty()) graph::showChannel(int(pipe.clip.blendCurves.size())); }
     }
+    if (opts_.graphDemo && !opts_.keysDemo) graph::setOpen(true);
     if (opts_.paintBone >= 0 && size_t(opts_.paintBone) < pipe.rig.skeleton.bones.size()) { tool = Tool::PaintWeights; brush.bone = opts_.paintBone; meshRenderer.shadeMode = MeshRenderer::ShadeMode::BoneWeights; meshRenderer.heatBone = brush.bone;
         if (opts_.paintDemo) {
             // scripted stroke: Add on a diagonal across the model's left cheek, symmetric, then show the cursor
@@ -278,6 +282,7 @@ void Application::handleViewportInput() {
     // keyboard shortcuts
     if (!io.WantTextInput) {
         if (ImGui::IsKeyPressed(ImGuiKey_Q)) tool = Tool::Orbit;
+        if (ImGui::IsKeyPressed(ImGuiKey_G) && !io.KeyCtrl) graph::setOpen(!graph::isOpen());
         if (ImGui::IsKeyPressed(ImGuiKey_W)) tool = Tool::AddPoint;
         if (ImGui::IsKeyPressed(ImGuiKey_E)) tool = Tool::MovePoint;
         if (ImGui::IsKeyPressed(ImGuiKey_R) && !io.KeyCtrl) tool = Tool::PaintWeights;

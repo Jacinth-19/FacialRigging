@@ -69,3 +69,21 @@ TEST_CASE("key layer composites over the baked clip, survives regeneration, flat
     CHECK(in[0].keyLayer.find(jb.target, 0) != nullptr);
     std::filesystem::remove_all(tmp);
 }
+
+#include "ui/timeline_common.h"
+TEST_CASE("graph editor channel view: normalisation ranges and composite values") {
+    AnimationClip clip; clip.duration = 2.0f; clip.frameRate = 30.0f;
+    Curve<float> w; w.target = "JawOpen"; w.addKey(0.0f, 0.0f); w.addKey(2.0f, 0.5f); clip.blendCurves.push_back(w);
+    Curve<glm::quat> r; r.target = "Head"; r.addKey(0.0f, glm::quat(1, 0, 0, 0)); r.addKey(2.0f, glm::angleAxis(glm::radians(12.0f), glm::vec3(1, 0, 0))); clip.boneRotations.push_back(r);
+    auto ch = tl::channels(clip);
+    REQUIRE(ch.size() == 4);                     // 1 blend + 3 bone axes
+    CHECK(tl::channelLabel(ch[1]) == "Head X (deg)");
+    float lo, hi; tl::channelRange(clip, ch[0], lo, hi); CHECK(lo == 0.0f); CHECK(hi == 1.0f);
+    tl::channelRange(clip, ch[1], lo, hi); CHECK(lo == Approx(-15.0f)); CHECK(hi == Approx(15.0f));   // 12 deg rounded up to a multiple of 5, symmetric
+    CHECK(tl::bakedAt(clip, ch[1], 2.0f) == Approx(12.0f).margin(0.05f));
+    clip.keyLayer.get("Head", 0).addKey(1.0f, 10.0f);
+    CHECK(tl::compositeAt(clip, ch[1], 1.0f) == Approx(6.0f + 10.0f).margin(0.1f));
+    tl::channelRange(clip, ch[1], lo, hi); CHECK(hi == Approx(25.0f));   // key holds after 1 s: composite at 2 s = 12 + 10 -> rounded up to 25
+    clip.keyLayer.get("JawOpen").addKey(2.0f, 0.3f);
+    CHECK(tl::compositeAt(clip, ch[0], 2.0f) == Approx(0.8f));
+}

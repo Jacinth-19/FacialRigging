@@ -302,7 +302,8 @@ if(FR_BUILD_APP)
     src/render/reference.cpp
     src/render/gizmo_renderer.cpp
     src/ui/panels.cpp
-    src/ui/theme.cpp)
+    src/ui/theme.cpp
+    src/ui/graph_editor.cpp)
   add_dependencies(facial_rigging fr_icon_font)
   target_link_libraries(facial_rigging PRIVATE fr_core imgui glfw fr_warnings)
   target_include_directories(facial_rigging PRIVATE third_party/stb)

@@ -268,6 +268,19 @@ side or stacked with a draggable splitter, or as an adjustable-opacity **ghost o
 Videos scrub in sync with the clip time (plus an offset) so mouth shapes can be compared frame by frame;
 picking, handles and labels all respect the reduced scene rectangle.
 
+### Graph editor (View ▸ Graph editor, key `G`)
+
+A dockable/floating multi-channel curve window (`src/ui/graph_editor.cpp`) on top of the same
+non-destructive key layer as the viewport timeline. Channel list with filter / all / none / keyed /
+active and Shift-click solo; **value normalisation** modes - *Normalised* (each channel stretched to
+its own range so weights and bone degrees share one graph), *Absolute* (one axis in channel units),
+*Stacked* (a strip per channel). Keys of every visible channel are edited together: click / Shift /
+box-select across channels, drag in time and value (frame snap, Shift locks an axis, Ctrl disables
+snap), tangent handles, Auto / Flat / Linear / Free, broken tangents, numeric time / value fields,
+`K` keys all visible channels, `F` frames the selection, `Del`, `Ctrl+A`, right-drag scrub,
+middle-drag pan, wheel / Ctrl+wheel / Shift+wheel for scroll / time zoom / value zoom.
+Headless preview: `--keys-demo --graph-editor`.
+
 ### Timeline editor
 
 On *Check Animation* a dope-sheet opens under the viewport: a time ruler, an **Audio** waveform lane

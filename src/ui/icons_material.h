@@ -3,6 +3,8 @@
 #define ICON_MIN_MD 0xe000
 #define ICON_MAX_MD 0xf8ff
 #define ICON_MD_FACE "\xee\xa1\xbc"  // face U+E87C
+#define ICON_MD_SHOW_CHART "\xee\x9b\xa1"  // show_chart U+E6E1
+#define ICON_MD_SEARCH "\xee\xa2\xb6"  // search U+E8B6
 #define ICON_MD_COMPARE "\xee\x8e\xb9"  // compare U+E3B9
 #define ICON_MD_TIMER "\xee\x90\xa5"  // timer U+E425
 #define ICON_MD_PERSON "\xee\x9f\xbd"  // person U+E7FD

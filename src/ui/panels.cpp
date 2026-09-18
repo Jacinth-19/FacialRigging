@@ -3,6 +3,8 @@
 //   1 Load Face   2 Check Model (orientation)   3 Face Rig   4 Lip-sync   5 Check Animation / Export
 #include "ui/panels.h"
 #include "ui/theme.h"
+#include "ui/timeline_common.h"
+#include "ui/graph_editor.h"
 #include "app/application.h"
 #include "rig/rig_tools.h"
 #include "audio/viseme_mapper.h"
@@ -117,6 +119,7 @@ void menuBar(Application& app) {
                 ImGui::MenuItem("Sync video to clip time", nullptr, &app.referenceSyncTime);
                 ImGui::EndMenu();
             }
+            { bool ge = graph::isOpen(); if (ImGui::MenuItem(ICON_MD_SHOW_CHART "  Graph editor", "G", &ge)) graph::setOpen(ge); }
             ImGui::MenuItem("Wireframe", nullptr, &app.meshRenderer.wireframe);
             ImGui::MenuItem("Control points", nullptr, &app.showPoints);
             ImGui::MenuItem("Bones", nullptr, &app.showBones);
@@ -803,6 +806,7 @@ void pageAnim(Application& app) {
         ImGui::SetNextItemWidth(-1);
         if (ImGui::SliderFloat("##time", &app.playTime, 0.0f, p.clip.duration, "%.2f s")) p.clip.applyTo(p.rig, app.playTime);
         if (ImGui::Checkbox("Timeline editor (viewport)", &ui.timelineOpen)) {}
+        ImGui::SameLine(); { bool ge = graph::isOpen(); if (ImGui::Checkbox("Graph editor", &ge)) graph::setOpen(ge); }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Words / phones / visemes lanes and paintable curves under the viewport.\nEdits are undoable (Ctrl+Z).");
         SectionLabel("Curves :");
         auto curve = [&](const char* n) { if (auto* c = p.clip.findBlendCurve(n)) { ImGui::PlotLines(("##" + std::string(n)).c_str(), c->values.data(), int(c->values.size()), 0, n, 0, 1, ImVec2(-1, 38 * S())); } };
@@ -871,21 +875,7 @@ namespace timeline {
 
 float tlHeight() { return 300 * S(); }
 
-// A channel the editor can show: a baked blend curve (axis -1) or a bone rotation axis (deg).
-struct Channel { std::string target; int axis; int bakedIndex; bool bone; };
-std::vector<Channel> channels(const AnimationClip& clip) {
-    std::vector<Channel> ch;
-    for (size_t i = 0; i < clip.blendCurves.size(); ++i) ch.push_back({clip.blendCurves[i].target, -1, int(i), false});
-    for (size_t i = 0; i < clip.boneRotations.size(); ++i) for (int ax = 0; ax < 3; ++ax) ch.push_back({clip.boneRotations[i].target, ax, int(i), true});
-    return ch;
-}
-std::string channelLabel(const Channel& c) { return c.bone ? c.target + (c.axis == 0 ? " X (deg)" : c.axis == 1 ? " Y (deg)" : " Z (deg)") : c.target; }
-// baked value in channel units (weight 0..1 or degrees)
-float bakedAt(const AnimationClip& clip, const Channel& c, float t) {
-    if (!c.bone) return clip.blendCurves[size_t(c.bakedIndex)].sample(t);
-    glm::vec3 e = glm::degrees(glm::eulerAngles(clip.boneRotations[size_t(c.bakedIndex)].sample(t))); return e[c.axis];
-}
-float compositeAt(const AnimationClip& clip, const Channel& c, float t) { return bakedAt(clip, c, t) + clip.keyLayer.evaluate(c.target, c.axis, t); }
+using tl::Channel; using tl::channels; using tl::channelLabel; using tl::bakedAt; using tl::compositeAt;
 bool shown(size_t i) { return i < 128 ? ui.tlShow[i] : false; }
 
 void rangeApply(Application& app, const char* what, const std::function<void(Curve<float>&, size_t)>& fn) {
@@ -966,6 +956,8 @@ void draw(Application& app, float x0, float x1, float yTop, float yBot) {
     if (ImGui::RadioButton("Paint", ui.tlMode == 0)) ui.tlMode = 0;
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Drag to overwrite the baked frame values (blend curves only)");
     ImGui::SameLine(); if (ImGui::RadioButton("Keys", ui.tlMode == 1)) ui.tlMode = 1; if (ImGui::IsItemHovered()) ImGui::SetTooltip("Non-destructive key layer: double-click adds a key, drag keys / tangent handles, Delete removes.\nComposite = baked + keys; regenerating the lip-sync keeps the keys.");
+    ImGui::SameLine(); if (WideButton(ICON_MD_SHOW_CHART, ImVec2(24 * S(), 24 * S()))) graph::showChannel(ui.tlCurve);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Open the graph editor with this channel (multi-channel curve editing, dockable window, G)");
     ImGui::SameLine(); if (WideButton(ICON_MD_CLOSE, ImVec2(24 * S(), 24 * S()))) ui.timelineOpen = false;
     // second row: range operations (paint) or key tools (keys)
     if (ui.tlMode == 0) {
@@ -1093,13 +1085,7 @@ void draw(Application& app, float x0, float x1, float yTop, float yBot) {
     }
     // curve lane: value range depends on the active channel (weights 0..1, degrees -range..+range)
     const float cy0 = y, cy1 = y + curveH;
-    float vMin = 0.0f, vMax = 1.0f;
-    if (act.bone) {
-        float m = 5.0f; const auto& bc = clip.boneRotations[size_t(act.bakedIndex)];
-        for (size_t k = 0; k < bc.times.size(); k += 2) m = std::max(m, std::fabs(compositeAt(clip, act, bc.times[k])));
-        if (const KeyCurve* kc = clip.keyLayer.find(act.target, act.axis)) for (const Key& k : kc->keys) m = std::max(m, std::fabs(compositeAt(clip, act, k.time)));
-        m = std::ceil(m / 5.0f) * 5.0f; vMin = -m; vMax = m;
-    }
+    float vMin = 0.0f, vMax = 1.0f; tl::channelRange(clip, act, vMin, vMax);
     auto vy = [&](float v) { return cy1 - 1 * S() - std::clamp((v - vMin) / (vMax - vMin), 0.0f, 1.0f) * (curveH - 2 * S()); };
     auto yv = [&](float yy) { return vMin + std::clamp((cy1 - 1 * S() - yy) / (curveH - 2 * S()), 0.0f, 1.0f) * (vMax - vMin); };
     dl->AddRectFilled(ImVec2(laneX0, cy0), ImVec2(laneX1, cy1), colLane);
@@ -1514,6 +1500,7 @@ void drawPanels(Application& app) {
     leftColumn(app);
     rightColumn(app);
     viewportOverlay(app);
+    graph::draw(app);
     exportDialog(app);
 }
 

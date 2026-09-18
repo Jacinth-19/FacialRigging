@@ -44,6 +44,7 @@ int main(int argc, char** argv) {
         else if (a == "--video-seconds") o.videoSeconds = std::stof(next());
         else if (a == "--look-at") { o.lookAt.x = std::stof(next()); o.lookAt.y = std::stof(next()); o.lookAt.z = std::stof(next()); o.haveLookAt = true; }
         else if (a == "--clean") o.clean = true;
+        else if (a == "--graph-editor") o.graphDemo = true;
         else if (a == "--keys-demo") { o.keysDemo = true; if (i + 1 < argc && argv[i + 1][0] != '-') o.keysDemoChannel = std::stoi(next()); }
         else if (a == "--emotion") o.emotion = next();
         else if (a == "--landmarks") o.landmarks = next();

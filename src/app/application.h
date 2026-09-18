@@ -57,7 +57,7 @@ public:
         bool clean = false;               ///< hide handles / bones / labels (review renders)
         std::string referencePath;   ///< --reference image.png|clip.mp4 opens the split view
         std::string videoOut; float videoOrbit = 0.0f; int videoW = 1280, videoH = 720; float videoSeconds = -1.0f;   ///< --video out.mp4 [--orbit deg] [--video-size WxH] [--video-seconds s]
-        bool keysDemo = false;            ///< seed a few key-layer keys on JawOpen + Head X and open the timeline in key mode (screenshots/tests)
+        bool keysDemo = false; bool graphDemo = false;            ///< seed a few key-layer keys on JawOpen + Head X and open the timeline in key mode (screenshots/tests)
         bool paintDemo = false;           ///< with paintBone: apply a scripted brush stroke across the cheek (headless demo/test)               ///< select the paint tool on this bone at start (screenshots / demos)
         bool showLandmarks = false; int liveDevice = -1; float liveTestNoiseDb = -100.0f;   ///< --live-device N (-2 = test signal) --live-noise dB
         std::string landmarks = "auto";   ///< --landmarks auto|on|off (dlib auto-landmarking before rig build)

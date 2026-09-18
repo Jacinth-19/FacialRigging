@@ -504,6 +504,19 @@ void pageLipSync(Application& app) {
     ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##smile", &p.lipSync.smileBias, 0.0f, 1.0f, "Smile bias  %.2f");
     ImGui::SetNextItemWidth(-1); ImGui::SliderInt("##smooth", &p.lipSync.smoothingRadiusFrames, 0, 5, "Smoothing  %d frames");
     ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##fps", &p.lipSync.frameRate, 24.0f, 60.0f, "Frame rate  %.0f fps");
+    SectionLabel("Transcript (optional) :");
+    {
+        static char transcript[2048] = "";
+        static bool synced = false;
+        if (!synced) { std::snprintf(transcript, sizeof transcript, "%s", p.transcript.c_str()); synced = true; }
+        if (ImGui::InputTextMultiline("##transcript", transcript, sizeof transcript, ImVec2(-1, 56 * S()))) p.transcript = transcript;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("What is said in the audio. Phones come from CMUdict (+ rules), forced-aligned to the\nviseme posteriors; use [HH AH L OW] for explicit ARPAbet. Leave empty for purely acoustic lip-sync.");
+        if (!p.lastAlignment.phones.empty()) {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+            ImGui::TextWrapped("Aligned %zu words / %zu phones, speech coverage %.0f%%", p.lastAlignment.words.size(), p.lastAlignment.phones.size(), p.lastAlignment.coverage * 100.0f);
+            ImGui::PopStyleColor();
+        }
+    }
     SectionLabel("Performance layer :");
     {
         int sel = 0; std::vector<const char*> names;

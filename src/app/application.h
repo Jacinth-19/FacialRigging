@@ -36,6 +36,7 @@ public:
         int startStep = -1;               ///< wizard step to open (0..4), -1 = automatic
         std::string emotion;              ///< performance-layer emotion preset for generation
         float emotionAmount = 0.8f;
+        std::string transcript;
         float headMotion = -1.0f, gazeMotion = -1.0f; ///< <0 = keep defaults
         int shadeMode = 0;                ///< 0 lit, 1 normals, 2 bone weights, 3 shape influence, 4 displacement
         float gazeYaw = 0.0f, gazePitch = 0.0f; ///< initial eye pose (deg) when the model has eyeballs

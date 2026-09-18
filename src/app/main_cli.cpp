@@ -36,6 +36,7 @@ Options:
   --emotion <name> [<f>]    performance layer: neutral|happy|sad|angry|surprised|disgusted, amount 0..1 (default 0.8)
   --head-motion <f>         audio-driven head nods / sway 0..1 (default 0.5)
   --gaze-motion <f>         eye saccades 0..1, needs eyeball parts (default 0.5)
+  --transcript "<text>"     force-align the spoken text (CMUdict + rules, [ARPAbet] allowed) to the audio
   --clip-in <file.json>     skip generation; load a clip JSON (from --format json) and export it
   --save-audio <file.wav>   write the (synthetic) audio next to the export
   --save-model <file.obj>   write the (procedural) bind mesh as OBJ
@@ -95,6 +96,7 @@ int main(int argc, char** argv) {
         else if (a == "--head-motion") pipe.lipSync.headMotion = float(std::atof(next().c_str()));
         else if (a == "--gaze-motion") pipe.lipSync.gazeMotion = float(std::atof(next().c_str()));
         else if (a == "--clip-in") clipIn = next();
+        else if (a == "--transcript") pipe.transcript = next();
         else if (a == "--save-audio") saveAudio = next();
         else if (a == "--save-model") saveModel = next();
         else if (a == "--dump-features") dump = true;

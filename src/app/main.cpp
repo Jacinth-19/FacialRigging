@@ -31,6 +31,7 @@ int main(int argc, char** argv) {
         else if (a == "--ui-scale") o.uiScale = std::stof(next());
         else if (a == "--step") o.startStep = std::stoi(next());
         else if (a == "--emotion") o.emotion = next();
+        else if (a == "--transcript") o.transcript = next();
         else if (a == "--emotion-amount") o.emotionAmount = std::stof(next());
         else if (a == "--head-motion") o.headMotion = std::stof(next());
         else if (a == "--gaze-motion") o.gazeMotion = std::stof(next());
@@ -40,7 +41,7 @@ int main(int argc, char** argv) {
         else if (a == "-h" || a == "--help") {
             std::puts("facial_rigging [--model face.obj] [--audio speech.wav] [--generate] [--export out/scene.fbx]\n"
                       "               [--variation \"Increase smile\"]... [--size WxH] [--mapper rules|ml] [--model-pt model.pt] [--up auto|y|z] [--live] [--ui-scale F] [--step 0-4]\n"
-                      "               [--emotion happy|sad|angry|surprised|disgusted] [--emotion-amount F] [--head-motion F] [--gaze-motion F] [--shade 0-4] [--gaze YAW PITCH] [--msaa 0|2|4|8]\n"
+                      "               [--emotion happy|sad|angry|surprised|disgusted] [--emotion-amount F] [--transcript \"text\"] [--head-motion F] [--gaze-motion F] [--shade 0-4] [--gaze YAW PITCH] [--msaa 0|2|4|8]\n"
                       "               [--headless] [--gles] [--render-frames N] [--frame-pattern out/frame_%03d.ppm]\n"
                       "  --headless: no window; GLFW null platform + EGL pbuffer (needs libEGL/libGLESv2 on the library path,\n"
                       "              e.g. SwiftShader or Mesa). Combine with --render-frames to dump rendered frames.");

@@ -60,6 +60,7 @@ int Application::run() {
     pipe.mlModelPath = opts_.modelPt;
     pipe.modelUpAxis = opts_.upAxis == "z" ? Pipeline::UpAxis::Z : opts_.upAxis == "y" ? Pipeline::UpAxis::Y : Pipeline::UpAxis::Auto;
     if (!opts_.emotion.empty()) { pipe.lipSync.emotion = opts_.emotion; pipe.lipSync.emotionAmount = opts_.emotionAmount; }
+    if (!opts_.transcript.empty()) pipe.transcript = opts_.transcript;
     if (opts_.headMotion >= 0) pipe.lipSync.headMotion = opts_.headMotion;
     if (opts_.gazeMotion >= 0) pipe.lipSync.gazeMotion = opts_.gazeMotion;
     meshRenderer.shadeMode = MeshRenderer::ShadeMode(std::clamp(opts_.shadeMode, 0, 4));

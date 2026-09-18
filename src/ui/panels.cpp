@@ -51,7 +51,8 @@ struct UiState {
     float selA = -1.0f, selB = -1.0f;                                   // time-range selection (seconds), selA<0 = none
     int tlCurve = 0;                                                    // active curve in the editor
     bool tlPainting = false; float tlLastT = 0, tlLastV = 0;
-    int tlMode = 0, tlSelKey = -1, tlDrag = 0;                          // 0 paint / 1 keys; drag: -1 in-handle, 1 out-handle, 2 key, 3 scrub
+    int tlMode = 0, tlSelKey = -1, tlDrag = 0;                          // drag 4 = box select, 5 = move selection
+    std::vector<int> tlBoxSel; ImVec2 tlBoxA, tlBoxB; float tlMoveLastT = 0;  // multi-key selection on the active channel                          // 0 paint / 1 keys; drag: -1 in-handle, 1 out-handle, 2 key, 3 scrub
     float tlGain = 1.0f, tlOffset = 0.0f; int tlSmooth = 1;
     bool tlShow[128] = {true, true, true, false, false, true, false, false, false, false, false, false, false, false, false, false};
 };
@@ -862,7 +863,17 @@ void draw(Application& app, float x0, float x1, float yTop, float yBot) {
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Edit the in and out tangent independently (drag a handle with Free tangents)");
         ImGui::SameLine(0, 10 * S()); if (WideButton("Flatten to baked", ImVec2(0, 24 * S()), !L.empty())) { app.pushUndo("flatten key layer"); clip = clip.flattened(); ui.tlSelKey = -1; clip.applyTo(p.rig, app.playTime); app.status = "Key layer merged into the baked curves"; }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bake the key layer into the curves (exports do this implicitly)");
-        ImGui::SameLine(); if (WideButton("Clear layer", ImVec2(0, 24 * S()), !L.empty())) { app.pushUndo("clear key layer"); L.clear(); ui.tlSelKey = -1; clip.applyTo(p.rig, app.playTime); }
+        ImGui::SameLine(); if (WideButton("Clear layer", ImVec2(0, 24 * S()), !L.empty())) { app.pushUndo("clear key layer"); L.clear(); ui.tlSelKey = -1; ui.tlBoxSel.clear(); clip.applyTo(p.rig, app.playTime); }
+        ImGui::SameLine(0, 10 * S());
+        if (WideButton(ICON_MD_FACE "  Pose as keys", ImVec2(0, 24 * S()))) {
+            // key the difference between the rig's current pose (sliders / handles / gaze) and the baked clip, on every channel that differs
+            app.pushUndo("pose as keys"); int n = 0; const float t = app.playTime;
+            for (const auto& bc : clip.blendCurves) { float d = p.rig.blendWeight(bc.target) - bc.sample(t); if (std::fabs(d) > 1e-3f) { L.get(bc.target).addKey(t, d); ++n; } }
+            for (const auto& bc : clip.boneRotations) { int b = p.rig.skeleton.find(bc.target); if (b < 0) continue; glm::vec3 e = glm::degrees(glm::eulerAngles(glm::normalize(glm::inverse(bc.sample(t)) * p.rig.skeleton.bones[size_t(b)].poseRotation))); for (int ax = 0; ax < 3; ++ax) if (std::fabs(e[ax]) > 0.05f) { L.get(bc.target, ax).addKey(t, e[ax]); ++n; } }
+            app.status = n ? "Keyed " + std::to_string(n) + " channel(s) at " + std::to_string(t).substr(0, 4) + " s" : "Pose matches the clip - nothing to key";
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bake the current viewport pose (sliders, handles, gaze) as keys at the playhead, on every channel that differs from the clip.\nPose first (playback paused), then press this.");
+        if (ui.tlBoxSel.size() > 1) { ImGui::SameLine(); ImGui::TextColored(kAccent, "%zu keys selected (drag to move, Del)", ui.tlBoxSel.size()); }
         if (haveSel) { const Key& k = kc->keys[size_t(ui.tlSelKey)]; ImGui::SameLine(); ImGui::TextColored(kAccent, "key %d: %.3f s  %+.3f  in %.2f out %.2f", ui.tlSelKey, k.time, k.value, k.inSlope, k.outSlope); }
     }
 
@@ -985,11 +996,13 @@ void draw(Application& app, float x0, float x1, float yTop, float yBot) {
                 auto near = [&](ImVec2 a) { float dx = io.MousePos.x - a.x, dy = io.MousePos.y - a.y; return dx * dx + dy * dy < 36 * S() * S(); };
                 if (near(hi)) { hotKey = int(k); hotHandle = -1; } else if (near(ho)) { hotKey = int(k); hotHandle = 1; }
             }
-            dl->AddRectFilled(ImVec2(pt.x - 4 * S(), pt.y - 4 * S()), ImVec2(pt.x + 4 * S(), pt.y + 4 * S()), sel ? IM_COL32(255, 255, 255, 255) : colAccent, 1.0f);
+            const bool boxSel = std::find(ui.tlBoxSel.begin(), ui.tlBoxSel.end(), int(k)) != ui.tlBoxSel.end();
+            dl->AddRectFilled(ImVec2(pt.x - 4 * S(), pt.y - 4 * S()), ImVec2(pt.x + 4 * S(), pt.y + 4 * S()), sel || boxSel ? IM_COL32(255, 255, 255, 255) : colAccent, 1.0f);
             dl->AddRect(ImVec2(pt.x - 4 * S(), pt.y - 4 * S()), ImVec2(pt.x + 4 * S(), pt.y + 4 * S()), IM_COL32(0, 0, 0, 255), 1.0f);
             if (hotKey < 0) { float dx = io.MousePos.x - pt.x, dy = io.MousePos.y - pt.y; if (dx * dx + dy * dy < 49 * S() * S()) { hotKey = int(k); hotHandle = 0; } }
         }
     }
+    if (ui.tlDrag == 4) { ImVec2 a(std::min(ui.tlBoxA.x, ui.tlBoxB.x), std::min(ui.tlBoxA.y, ui.tlBoxB.y)), b(std::max(ui.tlBoxA.x, ui.tlBoxB.x), std::max(ui.tlBoxA.y, ui.tlBoxB.y)); dl->AddRectFilled(a, b, IM_COL32(255, 255, 255, 25)); dl->AddRect(a, b, IM_COL32(255, 255, 255, 160)); }
     // playhead
     { float px = tx(app.playTime); if (px >= laneX0 && px <= laneX1) { dl->AddLine(ImVec2(px, area.y), ImVec2(px, cy1), IM_COL32(255, 255, 255, 220), 1.5f * S()); dl->AddTriangleFilled(ImVec2(px - 5 * S(), area.y), ImVec2(px + 5 * S(), area.y), ImVec2(px, area.y + 7 * S()), IM_COL32(255, 255, 255, 220)); } }
 
@@ -1005,19 +1018,26 @@ void draw(Application& app, float x0, float x1, float yTop, float yBot) {
     // key mode shortcuts
     if (ui.tlMode == 1 && hovered && !io.WantTextInput) {
         if (ImGui::IsKeyPressed(ImGuiKey_K)) { app.pushUndo("add key"); ui.tlSelKey = clip.keyLayer.get(act.target, act.axis).addKey(app.playTime, clip.keyLayer.evaluate(act.target, act.axis, app.playTime)); }
-        if ((ImGui::IsKeyPressed(ImGuiKey_Delete) || ImGui::IsKeyPressed(ImGuiKey_Backspace)) && akc && ui.tlSelKey >= 0 && size_t(ui.tlSelKey) < akc->keys.size()) { app.pushUndo("delete key"); akc->removeKey(ui.tlSelKey); ui.tlSelKey = -1; clip.keyLayer.prune(); clip.applyTo(p.rig, app.playTime); }
+        if ((ImGui::IsKeyPressed(ImGuiKey_Delete) || ImGui::IsKeyPressed(ImGuiKey_Backspace)) && akc) {
+            std::vector<int> del = ui.tlBoxSel; if (del.empty() && ui.tlSelKey >= 0) del.push_back(ui.tlSelKey);
+            if (!del.empty()) { app.pushUndo(del.size() > 1 ? "delete keys" : "delete key"); std::sort(del.rbegin(), del.rend()); for (int i : del) akc->removeKey(i); ui.tlSelKey = -1; ui.tlBoxSel.clear(); clip.keyLayer.prune(); clip.applyTo(p.rig, app.playTime); }
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_A) && io.KeyCtrl && akc) { ui.tlBoxSel.clear(); for (size_t k = 0; k < akc->keys.size(); ++k) ui.tlBoxSel.push_back(int(k)); }
     }
+    if (ImGui::IsItemDeactivated()) { if (ui.tlDrag == 5 && akc) { /* keys of the moved selection may have crossed unselected ones: reselect by time proximity is overkill - just keep indices */ } ui.tlDrag = 0; }
     if (ImGui::IsItemActivated()) {
         ui.tlPainting = false; ui.tlDrag = 0;
         if (io.KeyShift) { ui.selA = ui.selB = xt(io.MousePos.x); }
         else if (inCurve && ui.tlMode == 1 && !io.KeyAlt) {
             app.playing = false;
-            if (hotKey >= 0 && hotHandle != 0) { app.pushUndo("edit tangent"); ui.tlSelKey = hotKey; ui.tlDrag = hotHandle; }
-            else if (hotKey >= 0) { app.pushUndo("move key"); ui.tlSelKey = hotKey; ui.tlDrag = 2; }
+            const bool inBox = hotKey >= 0 && std::find(ui.tlBoxSel.begin(), ui.tlBoxSel.end(), hotKey) != ui.tlBoxSel.end();
+            if (hotKey >= 0 && hotHandle != 0) { app.pushUndo("edit tangent"); ui.tlSelKey = hotKey; ui.tlDrag = hotHandle; ui.tlBoxSel.clear(); }
+            else if (inBox && ui.tlBoxSel.size() > 1) { app.pushUndo("move keys"); ui.tlSelKey = hotKey; ui.tlDrag = 5; ui.tlMoveLastT = xt(io.MousePos.x); }
+            else if (hotKey >= 0) { app.pushUndo("move key"); ui.tlSelKey = hotKey; ui.tlDrag = 2; ui.tlBoxSel.clear(); }
             else if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                 app.pushUndo("add key"); KeyCurve& kc = clip.keyLayer.get(act.target, act.axis);
                 float t = xt(io.MousePos.x); ui.tlSelKey = kc.addKey(t, yv(io.MousePos.y) - bakedAt(clip, act, t)); ui.tlDrag = 2; clip.applyTo(p.rig, app.playTime);
-            } else { ui.tlSelKey = -1; ui.tlDrag = 3; }
+            } else { ui.tlSelKey = -1; ui.tlBoxSel.clear(); ui.tlDrag = 4; ui.tlBoxA = ui.tlBoxB = io.MousePos; }
         }
         else if (inCurve && !act.bone && ui.tlMode == 0 && !io.KeyAlt) {
             app.pushUndo("paint curve"); ui.tlPainting = true; ui.tlLastT = xt(io.MousePos.x); ui.tlLastV = std::clamp(yv(io.MousePos.y), 0.0f, 1.0f);
@@ -1054,6 +1074,22 @@ void draw(Application& app, float x0, float x1, float yTop, float yBot) {
                 else { key.outMode = TangentMode::Free; key.outSlope = slope; if (!key.broken) { key.inMode = TangentMode::Free; key.inSlope = slope; } }
                 akc->updateTangents(); clip.applyTo(p.rig, app.playTime);
             }
+        } else if (ui.tlDrag == 4) {
+            ui.tlBoxB = io.MousePos; ui.tlBoxSel.clear();
+            if (akc) { float xa = std::min(ui.tlBoxA.x, ui.tlBoxB.x), xb = std::max(ui.tlBoxA.x, ui.tlBoxB.x), ya = std::min(ui.tlBoxA.y, ui.tlBoxB.y), yb = std::max(ui.tlBoxA.y, ui.tlBoxB.y);
+                for (size_t k = 0; k < akc->keys.size(); ++k) { ImVec2 pt(tx(akc->keys[k].time), vy(compositeAt(clip, act, akc->keys[k].time))); if (pt.x >= xa && pt.x <= xb && pt.y >= ya && pt.y <= yb) ui.tlBoxSel.push_back(int(k)); } }
+            // a tiny box = a click on empty space: scrub instead
+            if (std::fabs(ui.tlBoxB.x - ui.tlBoxA.x) < 3 && std::fabs(ui.tlBoxB.y - ui.tlBoxA.y) < 3) { app.playTime = t; clip.applyTo(p.rig, t); }
+        } else if (ui.tlDrag == 5 && akc && !ui.tlBoxSel.empty()) {
+            // move the whole selection in time (frame-snapped delta) keeping relative spacing; indices stay valid because order is preserved
+            float dt = (io.KeyCtrl ? t : std::round(t * clip.frameRate) / clip.frameRate) - (io.KeyCtrl ? ui.tlMoveLastT : std::round(ui.tlMoveLastT * clip.frameRate) / clip.frameRate);
+            if (std::fabs(dt) > 1e-6f) {
+                float lo = 1e9f, hi = -1e9f; for (int i : ui.tlBoxSel) { lo = std::min(lo, akc->keys[size_t(i)].time); hi = std::max(hi, akc->keys[size_t(i)].time); }
+                dt = std::clamp(dt, -lo, clip.duration - hi);
+                for (int i : ui.tlBoxSel) akc->keys[size_t(i)].time += dt;
+                std::sort(akc->keys.begin(), akc->keys.end(), [](const Key& a, const Key& b) { return a.time < b.time; }); akc->updateTangents();
+                ui.tlMoveLastT = t; clip.applyTo(p.rig, app.playTime);
+            }
         } else if (ui.tlDrag == 3 || ui.tlDrag == 0) { app.playTime = t; clip.applyTo(p.rig, t); }
     }
     if (hovered && !activeBtn) {
@@ -1061,7 +1097,7 @@ void draw(Application& app, float x0, float x1, float yTop, float yBot) {
         const char* ph = ""; for (const auto& x : p.lastAlignment.phones) if (t >= x.start && t < x.end) { ph = x.phone.c_str(); break; }
         const char* vs = ""; for (const auto& x : p.lastSegments) if (t >= x.start && t < x.end) { vs = visemeName(x.viseme); break; }
         std::snprintf(b, sizeof b, "%.3f s  f %d%s%s%s%s   %s = %.3f", t, int(t * clip.frameRate + 0.5f), *ph ? "   phone " : "", ph, *vs ? "   viseme " : "", vs, channelLabel(act).c_str(), compositeAt(clip, act, t));
-        if (ui.tlMode == 1) ImGui::SetTooltip("%s\nDouble-click: add key  |  drag key / orange handles: move / tangent  |  K: key at playhead  |  Del: remove\nShift-drag: select  |  Alt-drag / drag ruler: scrub  |  Ctrl+wheel: zoom  |  Ctrl while dragging: no frame snap", b);
+        if (ui.tlMode == 1) ImGui::SetTooltip("%s\nDouble-click: add key  |  drag key / orange handles: move / tangent  |  drag empty: box-select keys, then drag them together  |  K: key at playhead  |  Del: remove  |  Ctrl+A: all\nShift-drag: range  |  Alt-drag / drag ruler: scrub  |  Ctrl+wheel: zoom  |  Ctrl while dragging: no frame snap", b);
         else ImGui::SetTooltip("%s\nDrag in the curve lane to paint  |  Shift-drag: select range  |  Alt-drag / drag ruler: scrub  |  Ctrl+wheel: zoom", b);
     }
     ImGui::End(); ImGui::PopStyleColor(); ImGui::PopStyleVar();

@@ -189,7 +189,9 @@ degrees). Two modes:
   **Gain / Offset / Smooth / Flatten** act on the ticked curves inside it.
 - **Keys** - a non-destructive **key layer** (`src/anim/key_layer.*`): double-click adds a key,
   drag keys (frame-snapped, Ctrl for free), drag the orange **tangent handles**, `K` keys the
-  playhead, `Del` removes. Tangents are Auto (overshoot-free Catmull-Rom), Flat, Linear or Free,
+  playhead, `Del` removes; drag on empty space **box-selects** keys (then drag them together, Ctrl+A
+  selects all) and **Pose as keys** bakes the viewport pose (sliders, handles, gaze) as keys on every
+  channel that differs from the clip. Tangents are Auto (overshoot-free Catmull-Rom), Flat, Linear or Free,
   optionally broken. The composite is `baked + layer` for weights and `baked * rot(layer°)` for
   bones; the grey curve shows the baked original. Regenerating the lip-sync **keeps the keys**,
   exports flatten them, clip JSON and project files round-trip them, and *Flatten to baked* merges

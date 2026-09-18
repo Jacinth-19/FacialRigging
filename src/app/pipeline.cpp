@@ -194,17 +194,24 @@ bool Pipeline::generateAnimation() {
             char b[160]; std::snprintf(b, sizeof b, "Aligned transcript: %zu words, %zu phones, mean log-post %.2f, speech coverage %.0f%%", lastAlignment.words.size(), lastAlignment.phones.size(), lastAlignment.meanLogPosterior, lastAlignment.coverage * 100.0f);
             note(b);
         }
+        KeyLayer keep = clip.keyLayer;
         clip = gen.generate(features, lastSegments, visemes, rig);
+        clip.keyLayer = keep;
     } else {
         lastSegments = segmentVisemes(visemes, features.frameInterval(), lipSync.coarticulation.minSegmentSec);
+        KeyLayer keep = clip.keyLayer;
         clip = gen.generate(features, visemes, rig);
+        clip.keyLayer = keep;
     }
+    if (!clip.keyLayer.empty()) note("Kept " + std::to_string(clip.keyLayer.keyCount()) + " user keys from the key layer");
     int onsets = 0; for (auto& f : features.frames) onsets += f.onset;
     note("Generated clip: " + std::to_string(clip.frameCount()) + " frames @ " + std::to_string(int(clip.frameRate)) + " fps, " + std::to_string(features.frames.size()) + " audio frames, " + std::to_string(onsets) + " onsets");
     return true;
 }
 
-bool Pipeline::exportClip(const AnimationClip& c, const std::string& path, std::string* error, std::string* writtenPath) {
+bool Pipeline::exportClip(const AnimationClip& cIn, const std::string& path, std::string* error, std::string* writtenPath) {
+    const bool keepLayer = path.size() > 5 && path.compare(path.size() - 5, 5, ".json") == 0;   // clip JSON round-trips the editable layer
+    const AnimationClip c = keepLayer ? cIn : cIn.flattened();
     std::string fbNote;
     auto ex = makeExporterForPath(path, &fbNote);
     std::string out = path;

@@ -57,7 +57,9 @@ bool JsonClipExporter::exportScene(const Rig& rig, const std::vector<AnimationCl
             for (size_t i = 0; i < bc.values.size(); ++i) { const auto& v = bc.values[i]; if (i) o << ','; o << '[' << v.x << ',' << v.y << ',' << v.z << ']'; }
             o << "]}";
         }
-        o << "]}";
+        o << "]";
+        if (!c.keyLayer.empty()) o << ",\"keyLayer\":" << c.keyLayer.toJson();
+        o << "}";
     }
     o << "]}\n";
     std::ofstream f(path, std::ios::binary);
@@ -105,6 +107,7 @@ bool loadClipsJson(const std::string& path, std::vector<AnimationClip>& out, std
                     if (vals.size() != cv.times.size()) return false;
                     for (auto& v : vals) { if (v.size() != 3) return false; cv.values.push_back(glm::vec3(v[0], v[1], v[2])); }
                     c.boneTranslations.push_back(std::move(cv)); return r2; });
+                if (ck == "keyLayer") { p.ws(); return c.keyLayer.fromJson(text, p.i); }
                 return p.skipValue();
             });
             if (r) out.push_back(std::move(c));

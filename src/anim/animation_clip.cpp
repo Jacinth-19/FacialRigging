@@ -33,10 +33,32 @@ const Curve<float>* AnimationClip::findBlendCurve(const std::string& target) con
     return nullptr;
 }
 
+float AnimationClip::blendAt(const Curve<float>& baked, float t) const {
+    return std::clamp(baked.sample(t) + keyLayer.evaluate(baked.target, -1, t), 0.0f, 1.0f);
+}
+
+glm::quat AnimationClip::rotationAt(const Curve<glm::quat>& baked, float t) const {
+    glm::quat q = baked.sample(t);
+    if (keyLayer.empty() || !keyLayer.enabled) return q;
+    glm::vec3 e(keyLayer.evaluate(baked.target, 0, t), keyLayer.evaluate(baked.target, 1, t), keyLayer.evaluate(baked.target, 2, t));
+    if (e == glm::vec3(0.0f)) return q;
+    return glm::normalize(q * glm::quat(glm::radians(e)));
+}
+
+AnimationClip AnimationClip::flattened() const {
+    AnimationClip out = *this;
+    if (!keyLayer.empty() && keyLayer.enabled) {
+        for (auto& c : out.blendCurves) for (size_t k = 0; k < c.times.size(); ++k) c.values[k] = blendAt(c, c.times[k]);
+        for (auto& c : out.boneRotations) for (size_t k = 0; k < c.times.size(); ++k) c.values[k] = rotationAt(c, c.times[k]);
+    }
+    out.keyLayer.clear();
+    return out;
+}
+
 void AnimationClip::applyTo(Rig& rig, float t) const {
-    for (const auto& c : blendCurves) rig.setBlendWeight(c.target, c.sample(t));
+    for (const auto& c : blendCurves) rig.setBlendWeight(c.target, blendAt(c, t));
     rig.applyCombinations();
-    for (const auto& c : boneRotations) { int b = rig.skeleton.find(c.target); if (b >= 0) rig.skeleton.bones[b].poseRotation = c.sample(t); }
+    for (const auto& c : boneRotations) { int b = rig.skeleton.find(c.target); if (b >= 0) rig.skeleton.bones[b].poseRotation = rotationAt(c, t); }
     for (const auto& c : boneTranslations) { int b = rig.skeleton.find(c.target); if (b >= 0) rig.skeleton.bones[b].poseTranslation = c.sample(t); }
     rig.syncControlPointsFromRig();
 }

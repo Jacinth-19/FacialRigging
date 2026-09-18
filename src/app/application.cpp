@@ -80,6 +80,13 @@ int Application::run() {
     if (opts_.live) toggleLive();
     if (opts_.startStep >= 0) setStep(opts_.startStep);
     if (opts_.rigTab >= 0) setRigTab(opts_.rigTab);
+    if (opts_.keysDemo && pipe.clip.duration > 0) {
+        KeyLayer& L = pipe.clip.keyLayer; const float d = pipe.clip.duration;
+        KeyCurve& j = L.get(shapes::JawOpen); j.addKey(0.30f * d, 0.0f); j.addKey(0.40f * d, 0.35f); j.addKey(0.50f * d, 0.0f); j.setTangentMode(1, TangentMode::Flat);
+        if (!pipe.clip.boneRotations.empty()) { KeyCurve& h = L.get(pipe.clip.boneRotations[0].target, 0); h.addKey(0.55f * d, 0.0f); h.addKey(0.70f * d, 8.0f); h.addKey(0.85f * d, 0.0f); }
+        setTimelineKeyMode(1, 1); if (opts_.keysDemoChannel > 0) setTimelineChannel(opts_.keysDemoChannel);
+        playTime = 0.40f * d; pipe.clip.applyTo(pipe.rig, playTime);
+    }
     if (opts_.paintBone >= 0 && size_t(opts_.paintBone) < pipe.rig.skeleton.bones.size()) { tool = Tool::PaintWeights; brush.bone = opts_.paintBone; meshRenderer.shadeMode = MeshRenderer::ShadeMode::BoneWeights; meshRenderer.heatBone = brush.bone;
         if (opts_.paintDemo) {
             // scripted stroke: Add on a diagonal across the model's left cheek, symmetric, then show the cursor

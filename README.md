@@ -179,12 +179,23 @@ model runs in every build; `FR_WITH_TORCH` additionally allows TorchScript `.pt`
 
 ### Timeline editor
 
-On *Check Animation* a dope-sheet opens under the viewport: a time ruler, **Words / Phones /
-Visemes** lanes (from the forced alignment and the segments actually used for the mouth), and a
-curve lane for the baked blendshape channels. Drag in the curve lane to **paint** the active curve,
-Shift-drag to select a time range, Alt-drag / drag the ruler to scrub, Ctrl+wheel to zoom.
-**Gain / Offset / Smooth / Flatten** act on the ticked curves inside the selection (or the whole
-clip); all edits are undoable (Ctrl+Z) and are what gets exported.
+On *Check Animation* a dope-sheet opens under the viewport: a time ruler, an **Audio** waveform lane
+(min/max envelope with onset ticks), **Words / Phones / Visemes** lanes (from the forced alignment
+and the segments actually used for the mouth), and a curve lane. The channel picker lists every
+blendshape curve and every animated **bone axis** (`Jaw / Head / EyeL / EyeR / Tongue` X/Y/Z, in
+degrees). Two modes:
+
+- **Paint** - drag to overwrite the baked frame values of a blend curve; Shift-drag selects a range;
+  **Gain / Offset / Smooth / Flatten** act on the ticked curves inside it.
+- **Keys** - a non-destructive **key layer** (`src/anim/key_layer.*`): double-click adds a key,
+  drag keys (frame-snapped, Ctrl for free), drag the orange **tangent handles**, `K` keys the
+  playhead, `Del` removes. Tangents are Auto (overshoot-free Catmull-Rom), Flat, Linear or Free,
+  optionally broken. The composite is `baked + layer` for weights and `baked * rot(layer°)` for
+  bones; the grey curve shows the baked original. Regenerating the lip-sync **keeps the keys**,
+  exports flatten them, clip JSON and project files round-trip them, and *Flatten to baked* merges
+  them on demand. Layer weight / mute sliders let you audition the fix.
+
+Alt-drag / drag the ruler to scrub, Ctrl+wheel to zoom; all edits are undoable (Ctrl+Z).
 
 ### Performance layer, expressions, gaze
 

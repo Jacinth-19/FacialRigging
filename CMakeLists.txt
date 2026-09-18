@@ -69,6 +69,7 @@ add_library(fr_core STATIC
   src/export/exporter_factory.cpp
   src/app/pipeline.cpp
   src/app/project.cpp
+  src/anim/key_layer.cpp
 )
 target_include_directories(fr_core PUBLIC src)
 target_link_libraries(fr_core PUBLIC glm::glm PRIVATE fr_warnings)
@@ -303,7 +304,8 @@ if(FR_BUILD_TESTS)
     tests/test_rig_tools.cpp
     tests/test_scene_import.cpp
     tests/test_arkit.cpp
-    tests/test_project.cpp)
+    tests/test_project.cpp
+    tests/test_key_layer.cpp)
   target_link_libraries(fr_tests PRIVATE fr_core Catch2::Catch2WithMain fr_warnings)
   target_compile_definitions(fr_tests PRIVATE FR_ASSET_DIR="${CMAKE_SOURCE_DIR}/assets")
 endif()

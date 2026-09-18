@@ -20,7 +20,9 @@ std::string rel(const std::string& file, const fs::path& base, bool relative) {
     return ec || r.empty() ? file : r.generic_string();
 }
 std::string abs(const std::string& file, const fs::path& base) {
-    if (file.empty()) return file; fs::path p(file); if (p.is_absolute()) return file;
+    if (file.empty()) return file;
+    fs::path p(file);
+    if (p.is_absolute()) return file;
     fs::path cand = base / p; std::error_code ec; return fs::exists(cand, ec) ? cand.string() : file;
 }
 std::string v3(const glm::vec3& v) { return "[" + num(v.x) + "," + num(v.y) + "," + num(v.z) + "]"; }
@@ -71,7 +73,8 @@ bool saveProject(const std::string& path, const Pipeline& pipe, const ProjectSav
         bool f2 = true;
         for (const BlendShape& bs : r.blendShapes) {
             if (builtin.count(bs.name)) continue;
-            if (!f2) o << ','; f2 = false;
+            if (!f2) o << ',';
+            f2 = false;
             o << "{\"name\":" << str(bs.name) << ",\"indices\":[";
             for (size_t k = 0; k < bs.indices.size(); ++k) { if (k) o << ','; o << bs.indices[k]; }
             o << "],\"deltas\":[";
@@ -103,7 +106,9 @@ bool saveProject(const std::string& path, const Pipeline& pipe, const ProjectSav
         for (size_t i = 0; i < c.boneRotations.size(); ++i) { const auto& cv = c.boneRotations[i]; if (i) o << ','; o << "{\"target\":" << str(cv.target) << ",\"times\":" << json::arr(cv.times) << ",\"values\":["; for (size_t k = 0; k < cv.values.size(); ++k) { if (k) o << ','; o << q4(cv.values[k]); } o << "]}"; }
         o << "],\"boneTranslations\":[";
         for (size_t i = 0; i < c.boneTranslations.size(); ++i) { const auto& cv = c.boneTranslations[i]; if (i) o << ','; o << "{\"target\":" << str(cv.target) << ",\"times\":" << json::arr(cv.times) << ",\"values\":["; for (size_t k = 0; k < cv.values.size(); ++k) { if (k) o << ','; o << v3(cv.values[k]); } o << "]}"; }
-        o << "]}";
+        o << "]";
+        if (!c.keyLayer.empty()) o << ",\"keyLayer\":" << c.keyLayer.toJson();
+        o << "}";
     } else o << "null";
     o << "\n}\n";
     std::ofstream f(path); if (!f) { if (error) *error = "cannot write " + path; return false; }
@@ -131,13 +136,22 @@ bool loadProject(const std::string& path, Pipeline& pipe, std::string* error) {
         if (k == "model") return objEach(p, [&](const std::string& mk) {
             if (mk == "path") return p.str(modelPath);
             if (mk == "upAxis") { float v;
-            if (!p.num(v)) return false; upAxis = int(v); return true; }
+            if (!p.num(v)) return false;
+            upAxis = int(v);
+            return true;
+            }
             if (mk == "userRotation") { std::vector<float> a; if (!p.numArr(a) || a.size() != 9) return false; for (int c = 0; c < 3; ++c) for (int r = 0; r < 3; ++r) userRot[c][r] = a[size_t(c * 3 + r)]; return true; }
-            if (mk == "userTranslation") return rdV3(p, userTrans); return p.skipValue(); });
+            if (mk == "userTranslation") return rdV3(p, userTrans);
+            return p.skipValue();
+            });
         if (k == "audio") return objEach(p, [&](const std::string& ak) { if (ak == "path") return p.str(audioPath);
-        if (ak == "transcript") return p.str(transcript); return p.skipValue(); });
+        if (ak == "transcript") return p.str(transcript);
+        return p.skipValue();
+        });
         if (k == "mapper") return objEach(p, [&](const std::string& mk) { if (mk == "kind") return p.str(mapperKind);
-        if (mk == "model") return p.str(mlModel); return p.skipValue(); });
+        if (mk == "model") return p.str(mlModel);
+        return p.skipValue();
+        });
         if (k == "lipSync") return objEach(p, [&](const std::string& lk) {
             if (lk == "frameRate") return rdF(ls.frameRate);
             if (lk == "intensity") return rdF(ls.intensity);
@@ -145,7 +159,10 @@ bool loadProject(const std::string& path, Pipeline& pipe, std::string* error) {
             if (lk == "browFromPitch") return rdF(ls.browFromPitch);
             if (lk == "smileBias") return rdF(ls.smileBias);
             if (lk == "smoothing") { float v;
-            if (!p.num(v)) return false; ls.smoothingRadiusFrames = int(v); return true; }
+            if (!p.num(v)) return false;
+            ls.smoothingRadiusFrames = int(v);
+            return true;
+            }
             if (lk == "coarticulation") return json::boolean(p, ls.coarticulation.enabled);
             if (lk == "tongue") return rdF(ls.tongue);
             if (lk == "jawBoneDegrees") return rdF(ls.jawBoneDegrees);
@@ -155,11 +172,16 @@ bool loadProject(const std::string& path, Pipeline& pipe, std::string* error) {
             if (lk == "headMotion") return rdF(ls.headMotion);
             if (lk == "gazeMotion") return rdF(ls.gazeMotion);
             if (lk == "seed") { float v;
-            if (!p.num(v)) return false; ls.seed = unsigned(v); return true; } if (lk == "blinkRate") return rdF(ls.idle.blinkRate);
+            if (!p.num(v)) return false;
+            ls.seed = unsigned(v);
+            return true;
+            } if (lk == "blinkRate") return rdF(ls.idle.blinkRate);
             if (lk == "breathing") return rdF(ls.idle.breathing);
             return p.skipValue(); });
         if (k == "export") return objEach(p, [&](const std::string& ek) { if (ek == "audioSidecar") return json::boolean(p, audioSidecar);
-        if (ek == "embedAudioInGlb") return json::boolean(p, embedGlb); return p.skipValue(); });
+        if (ek == "embedAudioInGlb") return json::boolean(p, embedGlb);
+        return p.skipValue();
+        });
         if (k == "rig") return objEach(p, [&](const std::string& rk) {
             if (rk == "skinFirst") return json::boolean(p, skinFirst);
             if (rk == "forceSymmetry") return json::boolean(p, forceSym);
@@ -168,28 +190,46 @@ bool loadProject(const std::string& path, Pipeline& pipe, std::string* error) {
                 if (ck == "rest") return rdV3(p, c.rest);
                 if (ck == "offset") return rdV3(p, c.offset);
                 if (ck == "binding") { float v;
-                if (!p.num(v)) return false; c.binding = int(v); return true; }
+                if (!p.num(v)) return false;
+                c.binding = int(v);
+                return true;
+                }
                 if (ck == "target") return p.str(c.target);
                 if (ck == "driveAxis") return rdV3(p, c.axis);
                 if (ck == "driveRange") return rdF(c.range);
-                if (ck == "radius") return rdF(c.radius); return p.skipValue(); });
+                if (ck == "radius") return rdF(c.radius);
+                return p.skipValue();
+                });
                 cps.push_back(c); return r; });
             if (rk == "bonePoses") return arrEach(p, [&]() { BonePose b; bool r = objEach(p, [&](const std::string& bk) { if (bk == "bone") return p.str(b.bone);
             if (bk == "rotation") return rdQ(p, b.q);
-            if (bk == "translation") return rdV3(p, b.t); return p.skipValue(); }); poses.push_back(b); return r; });
+            if (bk == "translation") return rdV3(p, b.t);
+            return p.skipValue();
+            }); poses.push_back(b); return r; });
             if (rk == "blendWeights") return arrEach(p, [&]() { std::string n; float w = 0; bool r = objEach(p, [&](const std::string& wk) { if (wk == "shape") return p.str(n);
-            if (wk == "w") return p.num(w); return p.skipValue(); }); weights.push_back({n, w}); return r; });
+            if (wk == "w") return p.num(w);
+            return p.skipValue();
+            }); weights.push_back({n, w}); return r; });
             if (rk == "combinations") return arrEach(p, [&]() { Comb c; bool r = objEach(p, [&](const std::string& ck) { if (ck == "shape") return p.str(c.shape);
             if (ck == "a") return p.str(c.a);
             if (ck == "b") return p.str(c.b);
             if (ck == "gain") return p.num(c.gain);
-            if (ck == "min") return json::boolean(p, c.mn); return p.skipValue(); }); combs.push_back(c); return r; });
+            if (ck == "min") return json::boolean(p, c.mn);
+            return p.skipValue();
+            }); combs.push_back(c); return r; });
             if (rk == "userShapes") return arrEach(p, [&]() { UserShape u; bool r = objEach(p, [&](const std::string& uk) { if (uk == "name") return p.str(u.name);
             if (uk == "indices") return p.numArr(u.idx);
-            if (uk == "deltas") return p.numArr(u.deltas); return p.skipValue(); }); userShapes.push_back(std::move(u)); return r; });
+            if (uk == "deltas") return p.numArr(u.deltas);
+            return p.skipValue();
+            }); userShapes.push_back(std::move(u)); return r; });
             if (rk == "skin") { if (p.peek('n')) return p.skipValue(); haveSkin = true; return objEach(p, [&](const std::string& sk) { if (sk == "bones") return arrEach(p, [&]() { std::string b;
-            if (!p.str(b)) return false; skinBones.push_back(b); return true; });
-            if (sk == "influences") return p.numArr(skinInf); return p.skipValue(); }); }
+            if (!p.str(b)) return false;
+            skinBones.push_back(b);
+            return true;
+            });
+            if (sk == "influences") return p.numArr(skinInf);
+            return p.skipValue();
+            }); }
             return p.skipValue(); });
         if (k == "clip") {
             if (p.peek('n')) return p.skipValue();
@@ -200,16 +240,29 @@ bool loadProject(const std::string& path, Pipeline& pipe, std::string* error) {
                 if (ck == "fps") return p.num(clip.frameRate);
                 if (ck == "blendCurves") return arrEach(p, [&]() { Curve<float> cv; bool r = objEach(p, [&](const std::string& fk) { if (fk == "target") return p.str(cv.target);
                 if (fk == "times") return p.numArr(cv.times);
-                if (fk == "values") return p.numArr(cv.values); return p.skipValue(); });
-                if (cv.times.size() == cv.values.size()) clip.blendCurves.push_back(std::move(cv)); return r; });
+                if (fk == "values") return p.numArr(cv.values);
+                return p.skipValue();
+                });
+                if (cv.times.size() == cv.values.size()) clip.blendCurves.push_back(std::move(cv));
+                return r;
+                });
                 if (ck == "boneRotations") return arrEach(p, [&]() { Curve<glm::quat> cv; std::vector<std::vector<float>> vals; bool r = objEach(p, [&](const std::string& fk) { if (fk == "target") return p.str(cv.target);
                 if (fk == "times") return p.numArr(cv.times);
-                if (fk == "values") return p.vecArr(vals); return p.skipValue(); }); for (auto& v : vals) if (v.size() == 4) cv.values.push_back(glm::quat(v[0], v[1], v[2], v[3]));
-                if (cv.times.size() == cv.values.size()) clip.boneRotations.push_back(std::move(cv)); return r; });
+                if (fk == "values") return p.vecArr(vals);
+                return p.skipValue();
+                }); for (auto& v : vals) if (v.size() == 4) cv.values.push_back(glm::quat(v[0], v[1], v[2], v[3]));
+                if (cv.times.size() == cv.values.size()) clip.boneRotations.push_back(std::move(cv));
+                return r;
+                });
+                if (ck == "keyLayer") { p.ws(); return clip.keyLayer.fromJson(text, p.i); }
                 if (ck == "boneTranslations") return arrEach(p, [&]() { Curve<glm::vec3> cv; std::vector<std::vector<float>> vals; bool r = objEach(p, [&](const std::string& fk) { if (fk == "target") return p.str(cv.target);
                 if (fk == "times") return p.numArr(cv.times);
-                if (fk == "values") return p.vecArr(vals); return p.skipValue(); }); for (auto& v : vals) if (v.size() == 3) cv.values.push_back(glm::vec3(v[0], v[1], v[2]));
-                if (cv.times.size() == cv.values.size()) clip.boneTranslations.push_back(std::move(cv)); return r; });
+                if (fk == "values") return p.vecArr(vals);
+                return p.skipValue();
+                }); for (auto& v : vals) if (v.size() == 3) cv.values.push_back(glm::vec3(v[0], v[1], v[2]));
+                if (cv.times.size() == cv.values.size()) clip.boneTranslations.push_back(std::move(cv));
+                return r;
+                });
                 return p.skipValue(); });
         }
         return p.skipValue();

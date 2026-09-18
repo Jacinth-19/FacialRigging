@@ -49,6 +49,8 @@ public:
         int startStep = -1;               ///< wizard step to open (0..4), -1 = automatic
         int rigTab = -1;                  ///< Face Rig tab to open (0 handles, 1 weights, 2 correctives, 3 shapes, 4 bones)
         int paintBone = -1;
+        int keysDemoChannel = 0;          ///< --keys-demo: channel index to show (0 = JawOpen; larger = bone axes)
+        bool keysDemo = false;            ///< seed a few key-layer keys on JawOpen + Head X and open the timeline in key mode (screenshots/tests)
         bool paintDemo = false;           ///< with paintBone: apply a scripted brush stroke across the cheek (headless demo/test)               ///< select the paint tool on this bone at start (screenshots / demos)
         std::string emotion;              ///< performance-layer emotion preset for generation
         float emotionAmount = 0.8f;

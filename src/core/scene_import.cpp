@@ -18,7 +18,6 @@ namespace fr {
 
 namespace {
 glm::mat4 toGlm(const aiMatrix4x4& m) { return glm::transpose(glm::make_mat4(&m.a1)); }
-std::string lower(std::string s) { for (auto& c : s) c = char(std::tolower((unsigned char)c)); return s; }
 
 /// Some exporters (Blender, Maya) keep the ARKit names but with prefixes like "head.jawOpen" or
 /// "Basis:jawOpen"; strip to the last component so canonicalShapeName can match.

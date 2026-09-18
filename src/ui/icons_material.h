@@ -52,6 +52,9 @@
 #define ICON_MD_REFRESH "\xee\x97\x95"  // refresh U+E5D5
 #define ICON_MD_CLOSE "\xee\x97\x8d"  // close U+E5CD
 #define ICON_MD_MENU "\xee\x97\x92"  // menu U+E5D2
+#define ICON_MD_ADD "\xee\x85\x85"  // add U+E145
+#define ICON_MD_DELETE "\xee\xa1\xb2"  // delete U+E872
+#define ICON_MD_GRAPHIC_EQ "\xee\x86\xb8"  // graphic_eq U+E1B8
 #define ICON_MD_PSYCHOLOGY "\xee\xa9\x8a"  // psychology U+EA4A
 #define ICON_MD_RULE "\xef\x87\x82"  // rule U+F1C2
 #define ICON_MD_SENSORS "\xee\x94\x9e"  // sensors U+E51E

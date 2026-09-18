@@ -1,6 +1,7 @@
 #pragma once
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include "anim/key_layer.h"
 #include <string>
 #include <vector>
 
@@ -27,11 +28,17 @@ struct AnimationClip {
     std::vector<Curve<float>> blendCurves;
     std::vector<Curve<glm::quat>> boneRotations;
     std::vector<Curve<glm::vec3>> boneTranslations;
+    KeyLayer keyLayer;                 ///< user keys on top of the baked curves (see key_layer.h)
 
     int frameCount() const { return int(duration * frameRate + 0.5f) + 1; }
     Curve<float>* findBlendCurve(const std::string& target);
     const Curve<float>* findBlendCurve(const std::string& target) const;
-    /// Writes the pose at time t into the rig (weights + bone poses).
+    /// Composite values (baked + key layer) - what playback and export use.
+    float blendAt(const Curve<float>& baked, float t) const;
+    glm::quat rotationAt(const Curve<glm::quat>& baked, float t) const;
+    /// Copy with the key layer merged into the baked curves (same key times) and cleared.
+    AnimationClip flattened() const;
+    /// Writes the composite pose at time t into the rig (weights + bone poses).
     void applyTo(Rig& rig, float t) const;
     /// Temporal smoothing of blend curves (box filter of `radius` frames), for co-articulation / denoise.
     void smoothBlendCurves(int radius);

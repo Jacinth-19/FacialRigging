@@ -54,6 +54,7 @@ add_library(fr_core STATIC
   src/rig/blendshape_io.cpp
   src/rig/rbf_deformer.cpp
   src/audio/wav_io.cpp
+  src/audio/mic_check.cpp
   src/audio/fft.cpp
   src/audio/features.cpp
   src/audio/viseme_mapper.cpp
@@ -327,6 +328,7 @@ if(FR_BUILD_TESTS)
     tests/test_audio.cpp
     tests/test_anim_export.cpp
     tests/test_ml_live.cpp
+    tests/test_mic_check.cpp
     tests/test_parts.cpp
     tests/test_features.cpp
     tests/test_speech_model.cpp

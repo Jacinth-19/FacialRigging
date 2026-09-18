@@ -181,6 +181,23 @@ class and viseme smoothing are adjustable and applied on *Apply & restart captur
 signal now has silent gaps and an injectable noise floor (`--live --live-device -2 --live-noise -45`)
 so the gate can be exercised without a microphone.
 
+**Real-mic validation - `fr_cli --mic-check`.** The development sandbox has no microphone, so the
+capture path is validated on your machine with a self-test that needs no GUI:
+
+```
+build/fr_cli --mic-list                       # PortAudio devices
+build/fr_cli --mic-check mic_report.md        # default input; --mic-device <idx> to pick one
+```
+
+It walks three prompted phases through the exact live-capture path (3 s silence -> noise floor, DC,
+50/60 Hz hum; 8 s reading a pangram -> speech level, SNR, clipping, low/mid/high band balance, VAD
+speech share, viseme histogram from the ML mapper; 4 s of claps -> measured onset latency next to the
+estimated device + block + window + hop + smoothing budget, callback cadence and overruns) and writes
+`mic_report.md` + `.json` + the raw `.wav`. Every finding is graded OK / WARN / FAIL with the fix
+(raise gate threshold, lower OS gain, Bluetooth HFP bandwidth, run `--calibrate-speaker`, ...); exit
+code 3 means a FAIL. Send the three files back and the thresholds / conditioner defaults can be tuned
+to the real device. `--mic-device -2` runs the same flow on the synthetic signal (used by the tests).
+
 ### Automatic landmarking (built-in ICT-trained cascade)
 
 The default landmarker is our own 68-point **supervised-descent cascade**

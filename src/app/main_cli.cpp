@@ -6,6 +6,7 @@
 #include "export/exporter.h"
 #include <cctype>
 #include "audio/live_capture.h"
+#include "audio/mic_check.h"
 #include <chrono>
 #include <thread>
 #include <cstdio>
@@ -39,6 +40,8 @@ Options:
   --model-pt <file.pt>      TorchScript model for --mapper ml (default: built-in MLP)
   --up <auto|y|z>           up axis of the OBJ (default auto-detect; scans are often Z-up)
   --list-devices            list PortAudio input devices and exit
+  --mic-check [<report.md>] microphone self-test (silence / read-aloud / clap phases) -> report.md + .json + .wav to send back
+  --mic-device <idx>        input device for --mic-check (-1 default, -2 built-in test signal); --mic-list prints devices
   --live-test <dev> <sec>   run live capture from device index (-1 default, -2 built-in test signal) and print visemes
   --fps <n>                 bake frame rate (default 30)
   --intensity <f>           global mouth intensity (default 1.0)
@@ -58,7 +61,7 @@ Options:
 }
 
 int main(int argc, char** argv) {
-    std::string model, audioPath, output = "out/scene", format = "glb", saveAudio, saveModel, clipIn, project, saveProjectPath, liveLink, dumpLandmarks, calibWav, calibText, speakerIn, speakerOut; float liveSpeed = 1.0f;
+    std::string model, audioPath, output = "out/scene", format = "glb", saveAudio, saveModel, clipIn, project, saveProjectPath, liveLink, dumpLandmarks, calibWav, calibText, speakerIn, speakerOut; float liveSpeed = 1.0f; bool micCheck = false; int micDevice = -1; std::string micReport = "mic_report.md";
     std::vector<std::string> variationTexts;
     bool dump = false;
     Pipeline pipe;
@@ -85,6 +88,14 @@ int main(int argc, char** argv) {
             for (auto& d : devs) std::printf("[%d] %s (%d ch, %.0f Hz)\n", d.index, d.name.c_str(), d.maxInputChannels, d.defaultSampleRate);
             return 0;
         }
+        else if (a == "--mic-list") {
+            std::printf("%s\n", LiveCapture::backendInfo().c_str()); std::string e;
+            for (auto& d : LiveCapture::listInputDevices(&e)) std::printf("  [%d] %s (%d ch, %.0f Hz)\n", d.index, d.name.c_str(), d.maxInputChannels, d.defaultSampleRate);
+            if (!e.empty()) std::printf("  %s\n", e.c_str());
+            std::printf("  [-2] built-in test signal\n"); return 0;
+        }
+        else if (a == "--mic-device") micDevice = std::atoi(next().c_str());
+        else if (a == "--mic-check") { micCheck = true; if (i + 1 < argc && argv[i + 1][0] != '-') micReport = next(); }
         else if (a == "--live-test") {
             // Capture from a device (default: -2 test signal) for N seconds and print the viseme stream.
             int dev = std::atoi(next().c_str()); double secs = std::atof(next().c_str()); if (secs <= 0) secs = 3;
@@ -128,6 +139,15 @@ int main(int argc, char** argv) {
         else { std::fprintf(stderr, "unknown option %s\n", a.c_str()); usage(); return 2; }
     }
     std::string err;
+    if (micCheck) {
+        MicCheckOptions mo; mo.device = micDevice; mo.reportPath = micReport;
+        if (micDevice == LiveCapture::kTestSignalDevice) { mo.silenceSeconds = 2.0; mo.speechSeconds = 4.0; mo.latencySeconds = 2.0; }
+        std::printf("Microphone self-test on device %d - three short phases, ~%.0f s total. Report -> %s\n", micDevice, mo.silenceSeconds + mo.speechSeconds + mo.latencySeconds, micReport.c_str());
+        MicCheckResult r = runMicCheck(mo, pipe.makeMapper());
+        if (!r.error.empty()) { std::fprintf(stderr, "error: %s\n", r.error.c_str()); return 1; }
+        std::printf("\n%s\n", r.markdown().c_str());
+        return r.ok ? 0 : 3;
+    }
     if (!project.empty()) {
         if (!loadProject(project, pipe, &err)) { std::fprintf(stderr, "error: %s\n", err.c_str()); return 1; }
         if (pipe.clip.duration <= 0 && !pipe.audio.samples.empty() && !pipe.generateAnimation()) { std::fprintf(stderr, "error: animation generation failed\n"); return 1; }

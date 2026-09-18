@@ -9,8 +9,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$(pwd)
-RUN_TESTS=1 WANT_TIMIT=0 WANT_TORCH=0
-for a in "$@"; do case "$a" in --no-test) RUN_TESTS=0;; --timit) WANT_TIMIT=1;; --torch) WANT_TORCH=1;; esac; done
+RUN_TESTS=1 WANT_TIMIT=0 WANT_TORCH=0 WANT_CREMA=0
+for a in "$@"; do case "$a" in --no-test) RUN_TESTS=0;; --timit) WANT_TIMIT=1;; --torch) WANT_TORCH=1;; --crema) WANT_CREMA=1;; esac; done
 log() { printf '\033[1;32m[bootstrap]\033[0m %s\n' "$*"; }
 
 # --- 1. build tools (cmake/ninja via pip when the system has none) ------------------------------
@@ -64,6 +64,13 @@ if [ ! -f data/models/shape_predictor_68_face_landmarks.dat ]; then
   if git clone -q --depth 1 https://github.com/italojs/facial-landmarks-recognition data/.lm_tmp 2>/dev/null; then
     mv data/.lm_tmp/shape_predictor_68_face_landmarks.dat data/models/; rm -rf data/.lm_tmp
   else log "  (download failed - auto-landmarking will fall back to proportional guesses)"; fi
+fi
+if [ "$WANT_CREMA" = 1 ] && [ ! -d data/crema_d ]; then
+  log "fetching CREMA-D audio (plain-blob mirror hallowshaw/Speech-Emotion-Recognition-with-MFCC, ~600 MB)"
+  mkdir -p data; rm -rf data/.crema_tmp
+  git clone -q --depth 1 --filter=blob:none --sparse https://github.com/hallowshaw/Speech-Emotion-Recognition-with-MFCC data/.crema_tmp
+  git -C data/.crema_tmp sparse-checkout set dataset/cremad/AudioWAV
+  mv data/.crema_tmp/dataset/cremad/AudioWAV data/crema_d; rm -rf data/.crema_tmp
 fi
 if [ "$WANT_TORCH" = 1 ] && [ ! -d third_party/libtorch/torch ]; then
   log "fetching LibTorch (torch 2.2.2 CPU wheel)"

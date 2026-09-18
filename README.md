@@ -136,6 +136,20 @@ model runs in every build; `FR_WITH_TORCH` additionally allows TorchScript `.pt`
   extra blink at pause onsets, occasional double blinks) plus breathing (`src/anim/idle_motion.*`).
 - **Tongue.** ICT-style heads with a tongue part get a `Tongue` bone under `Jaw`; `L/T/D/N/TH` phones raise it.
 
+### Emotion from audio (CREMA-D head)
+
+`src/audio/emotion_classifier.cpp` is a second, utterance-level head next to the viseme mapper: a
+228-dim pooled descriptor (mean / std / p10 / p90 / delta of 13 MFCC + 26 log-mel + loudness, voicing,
+log-pitch, centroid, flux over the active frames, plus voiced fraction, onset rate, pitch range, pitch
+and loudness slopes, duration) -> MLP 228-96-96-6 -> anger / disgust / fear / happy / neutral / sad.
+`tools/train_emotion.cpp` trains it on **CREMA-D** (7442 clips, 91 actors; `tools/bootstrap.sh --crema`
+fetches a plain-blob mirror into `data/crema_d`) with a speaker-disjoint split, weighted CE, dropout and
+input noise; the shipped `assets/models/emotion_mlp.frvm` reaches **59.0 % accuracy / 58.9 % UAR on 18
+held-out actors** (chance 16.7 %). The result maps onto the expression presets with an amount that grows
+with the margin over neutral: *Performance layer > Emotion from audio (auto)* / `--emotion auto` picks
+the preset before baking, and the Microphone tab runs the head on a rolling 3 s window once a second
+(probability-smoothed) to drive the live face.
+
 ### Microphone conditioning and latency
 
 `src/audio/mic_conditioner.cpp` runs on the audio thread in front of the live ring buffer: 80 Hz

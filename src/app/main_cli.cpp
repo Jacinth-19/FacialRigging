@@ -101,11 +101,12 @@ int main(int argc, char** argv) {
         }
         else if (a == "--fps") pipe.lipSync.frameRate = float(std::atof(next().c_str()));
         else if (a == "--intensity") pipe.lipSync.intensity = float(std::atof(next().c_str()));
-        else if (a == "--emotion") { pipe.lipSync.emotion = next(); pipe.lipSync.emotionAmount = 0.8f; if (i + 1 < argc && std::isdigit((unsigned char)argv[i + 1][0])) pipe.lipSync.emotionAmount = float(std::atof(next().c_str())); }
+        else if (a == "--emotion") { pipe.lipSync.emotion = next(); if (pipe.lipSync.emotion == "auto") { pipe.autoEmotion = true; pipe.lipSync.emotion = "neutral"; } pipe.lipSync.emotionAmount = 0.8f; if (i + 1 < argc && std::isdigit((unsigned char)argv[i + 1][0])) pipe.lipSync.emotionAmount = float(std::atof(next().c_str())); }
         else if (a == "--head-motion") pipe.lipSync.headMotion = float(std::atof(next().c_str()));
         else if (a == "--gaze-motion") pipe.lipSync.gazeMotion = float(std::atof(next().c_str()));
         else if (a == "--clip-in") clipIn = next();
         else if (a == "--transcript") pipe.transcript = next();
+        else if (a == "--emotion-model") pipe.emotionModelPath = next();
         else if (a == "--landmarks") { std::string v = next(); pipe.autoLandmarks = v == "off" ? Pipeline::AutoLandmarks::Off : v == "on" ? Pipeline::AutoLandmarks::On : Pipeline::AutoLandmarks::Auto; }
         else if (a == "--dump-landmarks") dumpLandmarks = next();
         else if (a == "--save-audio") saveAudio = next();

@@ -60,6 +60,7 @@ int Application::run() {
     pipe.mapperKind = opts_.mapper == "ml" ? Pipeline::MapperKind::Ml : Pipeline::MapperKind::RuleBased;
     pipe.mlModelPath = opts_.modelPt;
     pipe.modelUpAxis = opts_.upAxis == "z" ? Pipeline::UpAxis::Z : opts_.upAxis == "y" ? Pipeline::UpAxis::Y : Pipeline::UpAxis::Auto;
+    if (opts_.emotion == "auto") pipe.autoEmotion = true; else
     if (!opts_.emotion.empty()) { pipe.lipSync.emotion = opts_.emotion; pipe.lipSync.emotionAmount = opts_.emotionAmount; }
     if (!opts_.transcript.empty()) pipe.transcript = opts_.transcript;
     if (opts_.headMotion >= 0) pipe.lipSync.headMotion = opts_.headMotion;
@@ -148,6 +149,30 @@ void Application::frame() {
             // Drive the rig directly from the live viseme (same mapping as the offline generator).
             LipSyncGenerator gen(pipe.lipSync);
             gen.applyVisemeToRig(liveViseme, lf.features, pipe.rig);
+            // emotion head on a rolling 3 s window, once a second; the preset is blended in as a static offset
+            if (liveEmotion && glfwGetTime() >= liveEmotionNext_) {
+                liveEmotionNext_ = glfwGetTime() + 1.0;
+                if (const EmotionClassifier* clf = pipe.emotionClassifier()) {
+                    MicStatus ms = live.micStatus();
+                    if (ms.speechFraction > 0.15f) {
+                        AudioBuffer buf; buf.sampleRate = live.sampleRate(); buf.channels = 1; buf.samples = live.recent(3.0);
+                        FeatureExtractor fx; EmotionResult r = clf->classify(fx.extract(buf));
+                        if (r.valid) {   // smooth the probabilities so the face doesn't flicker between classes
+                            if (liveEmotionResult.valid) for (size_t k = 0; k < r.probs.size(); ++k) r.probs[k] = 0.6f * liveEmotionResult.probs[k] + 0.4f * r.probs[k];
+                            liveEmotionResult = EmotionClassifier::fromProbs(r.probs);
+                            if (pipe.autoEmotion) { pipe.lipSync.emotion = liveEmotionResult.presetName; pipe.lipSync.emotionAmount = liveEmotionResult.presetAmount; }
+                        }
+                    }
+                }
+            }
+            if (pipe.autoEmotion && liveEmotionResult.valid) {
+                if (const ExpressionPreset* e = findExpressionPreset(pipe.lipSync.emotion)) {
+                    const float a = pipe.lipSync.emotionAmount;
+                    pipe.rig.setBlendWeight(shapes::MouthSmile, std::max(pipe.rig.blendWeight(shapes::MouthSmile), e->smile * a));
+                    pipe.rig.setBlendWeight(shapes::MouthFrown, e->frown * a); pipe.rig.setBlendWeight(shapes::BrowRaise, e->browRaise * a);
+                    pipe.rig.setBlendWeight(shapes::BrowDown, e->browDown * a); pipe.rig.setBlendWeight(shapes::EyeWide, e->eyeWide * a);
+                }
+            }
         }
         liveWave = live.recent(2.0);
     }

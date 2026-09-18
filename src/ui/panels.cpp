@@ -654,6 +654,11 @@ void pageLipSync(Application& app) {
                 ImGui::TextColored(kAccent, "Viseme  %s", visemeName(app.liveViseme.dominant()));
                 for (size_t i = 0; i < app.liveViseme.weights.size(); ++i) { ImGui::ProgressBar(app.liveViseme.weights[i], ImVec2(110 * S(), 8 * S()), ""); ImGui::SameLine(); ImGui::TextColored(kTextDim, "%s", visemeName(Viseme(i))); }
             }
+            if (app.liveEnabled) {
+                ImGui::Checkbox("Emotion head (3 s window)", &app.liveEmotion); ImGui::SameLine(); ImGui::Checkbox("drive face", &app.pipe.autoEmotion);
+                if (app.liveEmotionResult.valid) ImGui::TextColored(kAccent, ICON_MD_FACE "  %s", app.liveEmotionResult.summary().c_str());
+                else if (app.liveEmotion) ImGui::TextColored(kTextDim, "emotion: waiting for speech...");
+            }
             // --- microphone conditioning + latency
             {
                 MicSettings& ms = app.live.conditioner.settings;
@@ -728,8 +733,22 @@ void pageLipSync(Application& app) {
     {
         int sel = 0; std::vector<const char*> names;
         for (int i = 0; i < kExpressionPresetCount; ++i) { names.push_back(kExpressionPresets[i].name); if (p.lipSync.emotion == kExpressionPresets[i].name) sel = i; }
+        {
+            std::string err; const bool haveModel = p.emotionClassifier(&err) != nullptr;
+            ImGui::Checkbox("Emotion from audio (auto)", &p.autoEmotion);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", haveModel ? p.emotionClassifier()->modelInfo().c_str() : err.c_str());
+            if (!haveModel) { ImGui::SameLine(); ImGui::TextColored(kWarn, ICON_MD_WARNING); if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s\nTrain with fr_train_emotion --data data/crema_d", err.c_str()); }
+            ImGui::SameLine(); if (ImGui::SmallButton("Analyse now") && !p.audio.samples.empty()) { p.classifyEmotion(); app.status = p.log.back(); }
+            if (p.lastEmotion.valid) {
+                ImGui::TextColored(kAccent, "%s", p.lastEmotion.summary().c_str());
+                for (int k = 0; k < EmotionClassifier::kClasses; ++k) { ImGui::ProgressBar(p.lastEmotion.probs[size_t(k)], ImVec2(120 * S(), 7 * S()), ""); ImGui::SameLine(); ImGui::TextColored(k == int(p.lastEmotion.top) ? kText : kTextDim, "%s", emotionName(Emotion(k))); }
+                if (ImGui::SmallButton("Use as preset")) { p.lipSync.emotion = p.lastEmotion.presetName; p.lipSync.emotionAmount = p.lastEmotion.presetAmount; }
+            }
+        }
+        ImGui::BeginDisabled(p.autoEmotion);
         ImGui::SetNextItemWidth(-1); if (ImGui::Combo("##lsEmo", &sel, names.data(), int(names.size()))) p.lipSync.emotion = names[size_t(sel)];
         ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##lsEmoAmt", &p.lipSync.emotionAmount, 0.0f, 1.0f, "Emotion amount  %.2f");
+        ImGui::EndDisabled();
         ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##head", &p.lipSync.headMotion, 0.0f, 1.0f, "Head nods / sway  %.2f");
         ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##gaze", &p.lipSync.gazeMotion, 0.0f, 1.0f, "Eye saccades  %.2f");
         if (ImGui::IsItemHovered() && !p.rig.hasEyeBones()) ImGui::SetTooltip("This model has no eyeball parts; saccades need EyeL / EyeR bones.");

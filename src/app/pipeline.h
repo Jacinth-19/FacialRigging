@@ -1,5 +1,6 @@
 #pragma once
 #include "anim/animation_clip.h"
+#include "audio/emotion_classifier.h"
 #include "audio/phoneme_aligner.h"
 #include "anim/lipsync_generator.h"
 #include "audio/features.h"
@@ -41,6 +42,16 @@ public:
     AlignmentResult lastAlignment;                 ///< filled by generateAnimation() when a transcript was used
     std::vector<VisemeSegment> lastSegments;       ///< viseme segments actually used for the mouth (aligned or collapsed)
 
+    /// Emotion from audio (second head, CREMA-D-trained). When `autoEmotion` is set, generateAnimation()
+    /// classifies the loaded clip and writes the suggested preset / amount into lipSync before baking.
+    bool autoEmotion = false;
+    EmotionResult lastEmotion;                    ///< last classification (valid=false when none)
+    std::string emotionModelPath;                 ///< "" = assets/models/emotion_mlp.frvm
+    /// Loads (cached) and returns the classifier; nullptr with a note when the model is missing.
+    const EmotionClassifier* emotionClassifier(std::string* error = nullptr) const;
+    /// Classifies the loaded audio now (does not touch lipSync). Returns lastEmotion.
+    const EmotionResult& classifyEmotion();
+
     enum class MapperKind { RuleBased, Ml };
     MapperKind mapperKind = MapperKind::RuleBased;
     std::string mlModelPath;                      ///< .frvm or TorchScript .pt; empty -> assets/models/viseme_mlp.frvm (else built-in torch MLP)
@@ -48,6 +59,9 @@ public:
     enum class UpAxis { Auto, Y, Z };
     UpAxis modelUpAxis = UpAxis::Auto;            ///< how to interpret imported OBJ orientation                      ///< TorchScript .pt; empty -> built-in MLP
     std::shared_ptr<VisemeMapper> makeMapper(std::string* note = nullptr) const;
+private:
+    mutable EmotionClassifier emotionClf_; mutable bool emotionTried_ = false; mutable std::string emotionErr_;
+public:
 
     std::string modelPath, audioPath;             ///< last loaded files ("" = procedural / synthetic)
     bool loadModel(const std::string& path, std::string* error = nullptr);

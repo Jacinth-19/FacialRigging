@@ -133,7 +133,7 @@ public:
     bool saveFrame(const std::string& path) const;
     // live microphone
     LiveCapture live;
-    bool liveEnabled = false; std::string liveError; std::vector<float> liveWave; VisemeFrame liveViseme;
+    bool liveEnabled = false; bool liveEmotion = true; EmotionResult liveEmotionResult; double liveEmotionNext_ = 0.0; std::string liveError; std::vector<float> liveWave; VisemeFrame liveViseme;
     void toggleLive(int device = -1);
     glm::ivec2 viewportSize() const { return fbSize_; }
     /// Reference media split view. `sceneRect` (window pixels, y down) is where the 3D scene is drawn; the UI sets it

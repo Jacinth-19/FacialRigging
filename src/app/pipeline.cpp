@@ -195,6 +195,27 @@ std::shared_ptr<VisemeMapper> Pipeline::makeMapper(std::string* noteOut) const {
     return std::make_shared<VisemeMapper>();
 }
 
+const EmotionClassifier* Pipeline::emotionClassifier(std::string* error) const {
+    if (!emotionTried_ || (!emotionClf_.loaded() && !emotionModelPath.empty())) {
+        emotionTried_ = true; emotionErr_.clear();
+        bool ok = emotionModelPath.empty() ? emotionClf_.loadDefault(assetDir.empty() ? "assets" : assetDir, &emotionErr_) : emotionClf_.load(emotionModelPath, &emotionErr_);
+        if (!ok) emotionErr_ = "emotion model unavailable (" + emotionErr_ + ")";
+    }
+    if (!emotionClf_.loaded()) { if (error) *error = emotionErr_; return nullptr; }
+    return &emotionClf_;
+}
+
+const EmotionResult& Pipeline::classifyEmotion() {
+    lastEmotion = EmotionResult{};
+    std::string err; const EmotionClassifier* clf = emotionClassifier(&err);
+    if (!clf) { note("Emotion: " + err); return lastEmotion; }
+    if (audio.samples.empty()) { note("Emotion: no audio loaded"); return lastEmotion; }
+    if (features.frames.empty() || features.duration <= 0) { FeatureExtractor fx; features = fx.extract(audio); }
+    lastEmotion = clf->classify(features);
+    note("Emotion from audio: " + lastEmotion.summary() + " -> preset '" + lastEmotion.presetName + "' " + std::to_string(int(lastEmotion.presetAmount * 100)) + "%");
+    return lastEmotion;
+}
+
 bool Pipeline::generateAnimation() {
     if (audio.samples.empty()) { note("No audio loaded"); return false; }
     if (rig.blendShapes.empty()) buildDefaultRig();
@@ -203,6 +224,10 @@ bool Pipeline::generateAnimation() {
     note(mnote);
     FeatureExtractor fx;
     features = fx.extract(audio);
+    if (autoEmotion) {
+        classifyEmotion();
+        if (lastEmotion.valid) { lipSync.emotion = lastEmotion.presetName; lipSync.emotionAmount = lastEmotion.presetAmount; }
+    }
     auto visemes = mapper->map(features);
     LipSyncGenerator gen(lipSync);
     lastAlignment = AlignmentResult{};

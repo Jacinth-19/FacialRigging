@@ -73,6 +73,7 @@ add_library(fr_core STATIC
   src/anim/key_layer.cpp
   src/rig/landmarks.cpp
   src/audio/mic_conditioner.cpp
+  src/audio/emotion_classifier.cpp
 )
 target_include_directories(fr_core PUBLIC src)
 target_link_libraries(fr_core PUBLIC glm::glm PRIVATE fr_warnings)
@@ -332,7 +333,8 @@ if(FR_BUILD_TESTS)
     tests/test_project.cpp
     tests/test_key_layer.cpp
   tests/test_landmarks.cpp
-  tests/test_mic.cpp)
+  tests/test_mic.cpp
+  tests/test_emotion.cpp)
   target_link_libraries(fr_tests PRIVATE fr_core Catch2::Catch2WithMain fr_warnings)
   target_compile_definitions(fr_tests PRIVATE FR_ASSET_DIR="${CMAKE_SOURCE_DIR}/assets")
 endif()
@@ -342,6 +344,8 @@ option(FR_BUILD_TRAINER "Build the fr_train_visemes tool" ON)
 if(FR_BUILD_TRAINER)
   add_executable(fr_train_visemes tools/train_visemes.cpp)
   target_link_libraries(fr_train_visemes PRIVATE fr_core fr_warnings)
+  add_executable(fr_train_emotion tools/train_emotion.cpp)
+  target_link_libraries(fr_train_emotion PRIVATE fr_core fr_warnings)
   add_executable(fr_eval_alignment tools/eval_alignment.cpp)
   target_link_libraries(fr_eval_alignment PRIVATE fr_core fr_warnings)
   target_compile_definitions(fr_eval_alignment PRIVATE FR_ASSET_DIR="${CMAKE_SOURCE_DIR}/assets")

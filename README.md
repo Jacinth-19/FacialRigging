@@ -155,6 +155,28 @@ model runs in every build; `FR_WITH_TORCH` additionally allows TorchScript `.pt`
   transforms, clip painting, imports) pushes a labelled snapshot; *Edit* menu and toolbar show what
   Ctrl+Z / Ctrl+Y will do.
 
+### Interchange: rigged imports, ARKit mocap, audio-in-export, project files
+
+- **Import an already-rigged head** (`.fbx` / `.glb` / `.gltf`, via Assimp): existing morph targets
+  and bones are kept and driven directly. ARKit-named targets (`jawOpen`, `mouthSmileLeft`, ...) are
+  merged into the canonical channels, jaw/head/eye joints are detected by name and the skin weights
+  come from the file (`src/core/scene_import.*`, marked as *painted* so project files keep them).
+- **ARKit 52 mocap CSV** (`--format csv`, *Export ▸ ARKit mocap CSV*): the Live Link Face / Face Cap
+  layout (`Timecode,BlendShapeCount,EyeBlinkLeft ... RightEyeRoll`) at 60 fps, readable back with
+  `readArkitCsv`. 50/52 coefficients are mapped on the ICT head (`ArkitMapping`).
+- **Live Link streaming**: *Check Animation ▸ Live Link* streams the current pose as Live Link Face
+  UDP packets (version 6, 61 floats, head/eye rotation included) while you play, scrub, pose or talk
+  into the microphone; `fr_cli --livelink host:port [speed]` replays a clip in real time. Add an
+  *Apple ARKit* Live Link source in Unreal on that port.
+- **Audio ships with exports**: `<out>.wav` is written next to every export with its start offset -
+  glTF `asset.extras.audio {uri, offset, sampleRate, duration}` plus per-animation `extras.audio`,
+  `<out>.audio.json` manifests for FBX / CSV, and `--embed-audio` packs the WAV into the `.glb` as a
+  buffer view. `--no-audio-sidecar` turns it off.
+- **Project files** (`.frproj`, *File ▸ Save / Open Project*, Ctrl+S, `--project`, `--save-project`):
+  one JSON with the model and audio paths (relative), orientation fixes, transcript, mapper and
+  lip-sync settings, every handle, painted skin weights, baked and corrective shapes, bone pose and
+  the edited clip. Opening one re-runs the import, rebuilds the rig and replays the edits.
+
 ### Timeline editor
 
 On *Check Animation* a dope-sheet opens under the viewport: a time ruler, **Words / Phones /
@@ -194,7 +216,7 @@ src/core    mesh, OBJ I/O, ray casting, camera        src/render  GL loader, sha
 src/rig     skeleton, blendshapes, control points, RBF src/ui      ImGui panels
 src/audio   WAV, FFT, MFCC/pitch/onsets, visemes       src/app     pipeline, CLI, GUI app
 src/anim    clips/curves, lip-sync generator           tools/      Arena task + runner
-src/export  glTF writer, FBX SDK writer                tests/      Catch2
+src/export  glTF/FBX/JSON/ARKit CSV, Live Link               tests/      Catch2
 ```
 
 Docs: [Design](docs/DESIGN.md) · [Status vs design](docs/STATUS.md) · [Agent integration](docs/AGENT.md)

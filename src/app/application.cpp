@@ -33,7 +33,6 @@ bool Application::initWindow() {
 #ifdef __APPLE__
         glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 #endif
-        glfwWindowHint(GLFW_SAMPLES, 4);
     }
     window_ = glfwCreateWindow(opts_.width, opts_.height, "FacialRigging", nullptr, nullptr);
     if (!window_) { glfwTerminate(); return false; }
@@ -64,6 +63,7 @@ int Application::run() {
     if (opts_.headMotion >= 0) pipe.lipSync.headMotion = opts_.headMotion;
     if (opts_.gazeMotion >= 0) pipe.lipSync.gazeMotion = opts_.gazeMotion;
     meshRenderer.shadeMode = MeshRenderer::ShadeMode(std::clamp(opts_.shadeMode, 0, 4));
+    msaaSamples = opts_.msaa;
     loadModel(opts_.modelPath);
     if (opts_.gazeYaw != 0.0f || opts_.gazePitch != 0.0f) pipe.rig.setGaze(opts_.gazeYaw, opts_.gazePitch);
     bool wantClip = !opts_.audioPath.empty() || opts_.autoGenerate || !opts_.exportOnStart.empty() || opts_.renderFrames > 0;
@@ -91,6 +91,7 @@ int Application::run() {
     }
     while (!glfwWindowShouldClose(window_)) { glfwPollEvents(); frame(); }
     live.stop();
+    destroyMsaaTarget();
     ImGui_ImplOpenGL3_Shutdown(); ImGui_ImplGlfw_Shutdown(); ImGui::DestroyContext();
     glfwDestroyWindow(window_); glfwTerminate();
     return 0;
@@ -124,14 +125,48 @@ void Application::frame() {
     drawOverlayLabels(*this);
     ImGui::Render();
 
+    const bool msaa = ensureMsaaTarget();
+    glBindFramebuffer(GL_FRAMEBUFFER, msaa ? msaaFbo_ : 0);
     glViewport(0, 0, fbSize_.x, fbSize_.y);
     glClearColor(0.235f, 0.235f, 0.235f, 1.0f); // viewport grey (theme::kViewportBg)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     if (!glIsES()) glEnable(GL_MULTISAMPLE);
     drawScene();
     drawGizmos();
+    if (msaa) { // resolve samples into the window
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, msaaFbo_); glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+        glBlitFramebuffer(0, 0, fbSize_.x, fbSize_.y, 0, 0, fbSize_.x, fbSize_.y, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
     glfwSwapBuffers(window_);
+}
+
+bool Application::ensureMsaaTarget() {
+    if (msaaMax_ == 0) { GLint m = 0; glGetIntegerv(GL_MAX_SAMPLES, &m); msaaMax_ = std::max(1, int(m)); }
+    int want = std::clamp(msaaSamples, 0, msaaMax_);
+    if (want < 2) { destroyMsaaTarget(); msaaActive_ = 0; return false; }
+    if (msaaFbo_ && msaaSize_ == fbSize_ && msaaActive_ == want) return true;
+    destroyMsaaTarget();
+    glGenFramebuffers(1, &msaaFbo_); glBindFramebuffer(GL_FRAMEBUFFER, msaaFbo_);
+    glGenRenderbuffers(1, &msaaColor_); glBindRenderbuffer(GL_RENDERBUFFER, msaaColor_);
+    glRenderbufferStorageMultisample(GL_RENDERBUFFER, want, GL_RGBA8, fbSize_.x, fbSize_.y);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, msaaColor_);
+    glGenRenderbuffers(1, &msaaDepth_); glBindRenderbuffer(GL_RENDERBUFFER, msaaDepth_);
+    glRenderbufferStorageMultisample(GL_RENDERBUFFER, want, GL_DEPTH_COMPONENT24, fbSize_.x, fbSize_.y);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, msaaDepth_);
+    bool ok = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    glBindRenderbuffer(GL_RENDERBUFFER, 0); glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    if (!ok) { std::fprintf(stderr, "[fr] %dx MSAA framebuffer incomplete - anti-aliasing disabled\n", want); destroyMsaaTarget(); msaaSamples = 0; msaaActive_ = 0; return false; }
+    msaaSize_ = fbSize_; msaaActive_ = want;
+    return true;
+}
+
+void Application::destroyMsaaTarget() {
+    if (msaaDepth_) glDeleteRenderbuffers(1, &msaaDepth_);
+    if (msaaColor_) glDeleteRenderbuffers(1, &msaaColor_);
+    if (msaaFbo_) glDeleteFramebuffers(1, &msaaFbo_);
+    msaaFbo_ = msaaColor_ = msaaDepth_ = 0; msaaSize_ = glm::ivec2(0);
 }
 
 Ray Application::mouseRay() const {

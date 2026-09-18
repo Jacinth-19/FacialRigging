@@ -39,6 +39,7 @@ public:
         float headMotion = -1.0f, gazeMotion = -1.0f; ///< <0 = keep defaults
         int shadeMode = 0;                ///< 0 lit, 1 normals, 2 bone weights, 3 shape influence, 4 displacement
         float gazeYaw = 0.0f, gazePitch = 0.0f; ///< initial eye pose (deg) when the model has eyeballs
+        int msaa = 4;                     ///< viewport anti-aliasing samples (0 = off); clamped to GL_MAX_SAMPLES
     };
     explicit Application(Options o) : opts_(std::move(o)) {}
     int run();
@@ -75,6 +76,9 @@ public:
     bool liveEnabled = false; std::string liveError; std::vector<float> liveWave; VisemeFrame liveViseme;
     void toggleLive(int device = -1);
     glm::ivec2 viewportSize() const { return fbSize_; }
+    int msaaSamples = 4;                  ///< requested; change at runtime (View menu), applied next frame
+    int msaaActive() const { return msaaActive_; }
+    int msaaMax() const { return msaaMax_; }
     /// Projects a world point to window pixels (for labels).
     bool project(const glm::vec3& world, glm::vec2& px) const;
 
@@ -86,6 +90,13 @@ private:
     glm::dvec2 lastMouse_{0, 0};
     bool dragging_ = false; glm::vec3 dragPlaneN_{0, 0, 1}; glm::vec3 dragStartWorld_{0}; glm::vec3 dragStartOffset_{0};
     double lastFrameTime_ = 0.0;
+
+    // Offscreen multisampled target for the 3D viewport; resolved (blit) into the default
+    // framebuffer before the UI is drawn. Works on desktop GL and GL ES 3.0 (SwiftShader), where
+    // multisampled default framebuffers are unavailable.
+    GLuint msaaFbo_ = 0, msaaColor_ = 0, msaaDepth_ = 0; glm::ivec2 msaaSize_{0, 0}; int msaaActive_ = 0, msaaMax_ = 0;
+    bool ensureMsaaTarget();
+    void destroyMsaaTarget();
 
     bool initWindow();
     void frame();

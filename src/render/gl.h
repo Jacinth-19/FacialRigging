@@ -114,6 +114,9 @@ typedef char GLchar; typedef std::ptrdiff_t GLsizeiptr; typedef std::ptrdiff_t G
 #define GL_DEPTH_COMPONENT24 0x81A6
 #define GL_RGBA8 0x8058
 #define GL_FRAMEBUFFER_COMPLETE 0x8CD5
+#define GL_READ_FRAMEBUFFER 0x8CA8
+#define GL_DRAW_FRAMEBUFFER 0x8CA9
+#define GL_MAX_SAMPLES 0x8D57
 typedef double GLdouble; typedef short GLshort; typedef unsigned short GLushort;
 
 #ifdef _WIN32
@@ -198,7 +201,9 @@ typedef double GLdouble; typedef short GLshort; typedef unsigned short GLushort;
   X(void, glDeleteRenderbuffers, GLsizei, const GLuint*) \
   X(void, glBindRenderbuffer, GLenum, GLuint) \
   X(void, glRenderbufferStorage, GLenum, GLenum, GLsizei, GLsizei) \
-  X(GLenum, glCheckFramebufferStatus, GLenum)
+  X(GLenum, glCheckFramebufferStatus, GLenum) \
+  X(void, glRenderbufferStorageMultisample, GLenum, GLsizei, GLenum, GLsizei, GLsizei) \
+  X(void, glBlitFramebuffer, GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLbitfield, GLenum)
 
 // Desktop-GL-only (or extension) entry points: loaded when available, otherwise null.
 #define FR_GL_OPTIONAL_FUNCS(X) \

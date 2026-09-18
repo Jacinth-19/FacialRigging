@@ -8,6 +8,7 @@
 #include "audio/ml_viseme_mapper.h"
 #include <algorithm>
 #include <cstring>
+#include <cstdio>
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <glm/gtc/quaternion.hpp>
@@ -78,6 +79,15 @@ void menuBar(Application& app) {
             ImGui::MenuItem("Bones", nullptr, &app.showBones);
             ImGui::MenuItem("Labels", nullptr, &app.showLabels);
             ImGui::MenuItem("GPU deformation", nullptr, &app.meshRenderer.gpuDeform);
+            if (ImGui::BeginMenu("Anti-aliasing")) {
+                for (int n : {0, 2, 4, 8, 16}) {
+                    if (n > 0 && n > app.msaaMax()) continue;
+                    char label[32]; std::snprintf(label, sizeof label, n ? "%dx MSAA" : "Off", n);
+                    if (ImGui::MenuItem(label, nullptr, app.msaaSamples == n)) app.msaaSamples = n;
+                }
+                ImGui::Separator(); ImGui::TextDisabled("active: %dx (max %dx)", app.msaaActive(), app.msaaMax());
+                ImGui::EndMenu();
+            }
             ImGui::Separator();
             using SM = MeshRenderer::ShadeMode;
             auto& sm = app.meshRenderer.shadeMode;

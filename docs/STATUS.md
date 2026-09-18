@@ -24,6 +24,7 @@
 | Expressions / emotions | ✅ 6 presets over 11 canonical shapes (3 new procedural + ARKit-merged), pose / lip-sync layer / export variation | |
 | Head motion | ✅ loudness/onset-driven nods + noise sway on `Head`, exported as bone curves | |
 | Clip interchange | ✅ mesh-free clip JSON with ARKit aliases, import/export in UI + CLI (`--format json`, `--clip-in`) | |
+| Anti-aliasing | ✅ offscreen MSAA FBO + resolve blit (desktop GL and GL ES 3.0), runtime-switchable | |
 | Diagnostic shading | ✅ normals / bone-weight heat map / blendshape influence / displacement (keys 1-5) | |
 | Audio encryption at rest | ❌ | Only needed once recordings are persisted |
 

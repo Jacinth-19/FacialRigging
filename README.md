@@ -134,6 +134,9 @@ model runs in every build; `FR_WITH_TORCH` additionally allows TorchScript `.pt`
 - **Clip JSON** (`--format json`, *Export ▸ Export clip JSON*, *Check Animation ▸ Clip JSON*): mesh-free
   curves with ARKit alias lists per shape (`"arkit": ["mouthSmile_L","mouthSmile_R"]`) for
   retargeting; `loadClipsJson` / `--clip-in` / *File ▸ Import clip JSON* loads it back onto any rig.
+- **Anti-aliasing.** The 3D viewport renders into a multisampled FBO (default 4×, `--msaa 0|2|4|8`,
+  *View ▸ Anti-aliasing*) and is resolved with `glBlitFramebuffer` before the UI is drawn, so it also
+  works on GL ES / SwiftShader headless renders where multisampled default framebuffers don't exist.
 - **Shading modes** (keys `1`–`5`, View menu, toolbar): Lit, Normals, **Bone-weight heat map**
   (thermometer button next to each bone), **Blendshape influence** (gradient button next to each
   shape, or all active shapes), Displacement. The heat map exposed - and fixed - jaw weights

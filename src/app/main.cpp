@@ -35,11 +35,12 @@ int main(int argc, char** argv) {
         else if (a == "--head-motion") o.headMotion = std::stof(next());
         else if (a == "--gaze-motion") o.gazeMotion = std::stof(next());
         else if (a == "--shade") o.shadeMode = std::stoi(next());
+        else if (a == "--msaa") o.msaa = std::stoi(next());
         else if (a == "--gaze") { o.gazeYaw = std::stof(next()); o.gazePitch = std::stof(next()); }
         else if (a == "-h" || a == "--help") {
             std::puts("facial_rigging [--model face.obj] [--audio speech.wav] [--generate] [--export out/scene.fbx]\n"
                       "               [--variation \"Increase smile\"]... [--size WxH] [--mapper rules|ml] [--model-pt model.pt] [--up auto|y|z] [--live] [--ui-scale F] [--step 0-4]\n"
-                      "               [--emotion happy|sad|angry|surprised|disgusted] [--emotion-amount F] [--head-motion F] [--gaze-motion F] [--shade 0-4] [--gaze YAW PITCH]\n"
+                      "               [--emotion happy|sad|angry|surprised|disgusted] [--emotion-amount F] [--head-motion F] [--gaze-motion F] [--shade 0-4] [--gaze YAW PITCH] [--msaa 0|2|4|8]\n"
                       "               [--headless] [--gles] [--render-frames N] [--frame-pattern out/frame_%03d.ppm]\n"
                       "  --headless: no window; GLFW null platform + EGL pbuffer (needs libEGL/libGLESv2 on the library path,\n"
                       "              e.g. SwiftShader or Mesa). Combine with --render-frames to dump rendered frames.");

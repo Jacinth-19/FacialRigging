@@ -9,6 +9,7 @@
 #include "audio/phoneme_aligner.h"
 #include "audio/ml_viseme_mapper.h"
 #include <algorithm>
+#include <cmath>
 #include <functional>
 #include <cstring>
 #include <cstdio>
@@ -41,7 +42,7 @@ struct UiState {
     char liveLinkHost[64] = "127.0.0.1"; int liveLinkPort = 11111;
     // export
     bool showExportDialog = false, showImportClip = false, showVideoDialog = false; int showProjectDialog = 0; // 1 open, 2 save
-    char videoBuf[512] = "out/turntable.mp4"; int videoPreset = 1;
+    char videoBuf[512] = "out/turntable.mp4"; int videoPreset = 1; char refBuf[512] = "";
     int rigTabRequest = -1;
     // bake / correctives
     char bakeName[64] = "Custom"; bool bakeResidual = true, bakeSplit = false; int corrA = 0, corrB = 0;
@@ -103,6 +104,15 @@ void menuBar(Application& app) {
                 for (int i = 0; i < 4; ++i) { char l[48], sc[8]; std::snprintf(l, sizeof l, app.userCams[i].set ? "Bookmark %d" : "Bookmark %d (empty)", i + 1); std::snprintf(sc, sizeof sc, "F%d", i + 1); if (ImGui::MenuItem(l, sc, false, app.userCams[i].set)) app.recallUserCam(i); }
                 ImGui::Separator();
                 for (int i = 0; i < 4; ++i) { char l[48], sc[12]; std::snprintf(l, sizeof l, "Store bookmark %d", i + 1); std::snprintf(sc, sizeof sc, "Ctrl+F%d", i + 1); if (ImGui::MenuItem(l, sc)) app.storeUserCam(i); }
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("Reference")) {
+                ImGui::SetNextItemWidth(260 * S()); ImGui::InputTextWithHint("##refpath", "image.png / video.mp4", ui.refBuf, sizeof ui.refBuf);
+                ImGui::SameLine(); if (ImGui::Button("Load")) app.loadReference(ui.refBuf);
+                ImGui::MenuItem("Show reference", nullptr, &app.referenceOpen, app.reference.valid());
+                ImGui::MenuItem("Overlay (ghost) instead of split", nullptr, &app.referenceOverlay);
+                ImGui::MenuItem("Stack vertically", nullptr, &app.referenceVertical);
+                ImGui::MenuItem("Sync video to clip time", nullptr, &app.referenceSyncTime);
                 ImGui::EndMenu();
             }
             ImGui::MenuItem("Wireframe", nullptr, &app.meshRenderer.wireframe);
@@ -728,6 +738,10 @@ void pageAnim(Application& app) {
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("e.g. \"Increase smile; Raise eyebrows; intensity=1.4; subtle\" - one extra file per variation");
     if (PrimaryButton(ICON_MD_IOS_SHARE "  Export...", ImVec2(-1, 36 * S()))) ui.showExportDialog = true;
     if (WideButton(ICON_MD_MOVIE "  Render video / turntable...", ImVec2(-1, 30 * S()))) ui.showVideoDialog = true;
+    ImGui::Spacing(); SectionLabel("Reference (split view) :");
+    ImGui::SetNextItemWidth(-1); ImGui::InputTextWithHint("##refpath2", "reference image or video", ui.refBuf, sizeof ui.refBuf);
+    if (WideButton(ICON_MD_COMPARE "  Load reference", ImVec2(-1, 28 * S()))) app.loadReference(ui.refBuf);
+    if (app.reference.valid()) { ImGui::Checkbox("Show", &app.referenceOpen); ImGui::SameLine(); ImGui::Checkbox("Overlay", &app.referenceOverlay); ImGui::SameLine(); ImGui::Checkbox("Sync time", &app.referenceSyncTime); }
     Rule();
     ImGui::TextColored(kTextDim, "Log");
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.09f, 0.09f, 0.09f, 1));
@@ -1231,6 +1245,50 @@ void viewportOverlay(Application& app) {
     ImGuiViewport* vp = ImGui::GetMainViewport();
     const float x0 = vp->WorkPos.x + kLeftWidth * S(), x1 = vp->WorkPos.x + vp->WorkSize.x - kRightWidth * S();
     ImDrawList* dl = ImGui::GetBackgroundDrawList();
+    // reference split view: the scene keeps the left (or top) part, the reference image/video fills the rest
+    {
+        const float lift = (app.pipe.clip.duration > 0 && ui.step == StepAnim && ui.timelineOpen) ? timeline::tlHeight() : 0.0f;
+        const float y0 = vp->WorkPos.y, y1 = vp->WorkPos.y + vp->WorkSize.y - lift;
+        if (app.referenceOpen && app.reference.valid()) {
+            const float t = app.referenceSyncTime ? app.playTime + app.referenceOffset : app.referenceOffset;
+            app.reference.show(std::max(0.0f, t), app.loop);
+            const float aspect = float(app.reference.width()) / float(std::max(1, app.reference.height()));
+            ImVec2 a, b;  // reference rect
+            if (app.referenceOverlay) { app.sceneRect = glm::vec4(x0, y0, x1 - x0, y1 - y0); a = ImVec2(x0, y0); b = ImVec2(x1, y1); }
+            else if (app.referenceVertical) { float split = y0 + (y1 - y0) * app.referenceSplit; app.sceneRect = glm::vec4(x0, y0, x1 - x0, split - y0); a = ImVec2(x0, split); b = ImVec2(x1, y1); }
+            else { float split = x0 + (x1 - x0) * app.referenceSplit; app.sceneRect = glm::vec4(x0, y0, split - x0, y1 - y0); a = ImVec2(split, y0); b = ImVec2(x1, y1); }
+            // letterbox the media inside its rect
+            float rw = b.x - a.x, rh = b.y - a.y, mw = rw, mh = rw / aspect; if (mh > rh) { mh = rh; mw = rh * aspect; }
+            ImVec2 ma(a.x + (rw - mw) * 0.5f, a.y + (rh - mh) * 0.5f), mb(ma.x + mw, ma.y + mh);
+            if (!app.referenceOverlay) dl->AddRectFilled(a, b, IM_COL32(28, 28, 28, 255));
+            ImDrawList* target = app.referenceOverlay ? ImGui::GetBackgroundDrawList() : dl;
+            target->AddImage((ImTextureID)(intptr_t)app.reference.texture(), ma, mb, ImVec2(0, 0), ImVec2(1, 1), IM_COL32(255, 255, 255, int(255 * (app.referenceOverlay ? app.referenceOpacity : 1.0f))));
+            if (!app.referenceOverlay) dl->AddLine(app.referenceVertical ? ImVec2(x0, a.y) : ImVec2(a.x, y0), app.referenceVertical ? ImVec2(x1, a.y) : ImVec2(a.x, y1), IM_COL32(60, 60, 60, 255), 2.0f);
+            // splitter drag handle
+            if (!app.referenceOverlay) {
+                ImGui::SetNextWindowPos(app.referenceVertical ? ImVec2(x0, a.y - 4 * S()) : ImVec2(a.x - 4 * S(), y0));
+                ImGui::SetNextWindowSize(app.referenceVertical ? ImVec2(x1 - x0, 8 * S()) : ImVec2(8 * S(), y1 - y0));
+                ImGui::SetNextWindowBgAlpha(0.0f);
+                ImGui::Begin("##refsplit", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar);
+                ImGui::InvisibleButton("##grip", ImGui::GetContentRegionAvail().x > 0 ? ImGui::GetContentRegionAvail() : ImVec2(1, 1));
+                if (ImGui::IsItemHovered() || ImGui::IsItemActive()) ImGui::SetMouseCursor(app.referenceVertical ? ImGuiMouseCursor_ResizeNS : ImGuiMouseCursor_ResizeEW);
+                if (ImGui::IsItemActive()) { ImVec2 m = ImGui::GetIO().MousePos; app.referenceSplit = std::clamp(app.referenceVertical ? (m.y - y0) / (y1 - y0) : (m.x - x0) / (x1 - x0), 0.2f, 0.8f); }
+                ImGui::End();
+            }
+            // small caption / controls at the reference's top-left
+            ImGui::SetNextWindowPos(ImVec2(a.x + 8 * S(), a.y + 8 * S())); ImGui::SetNextWindowBgAlpha(0.55f);
+            ImGui::Begin("##refbar", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings);
+            ImGui::PushFont(ui.fonts.small);
+            std::string name = app.reference.path().substr(app.reference.path().find_last_of("/\\") == std::string::npos ? 0 : app.reference.path().find_last_of("/\\") + 1);
+            if (app.reference.isVideo()) ImGui::Text("%s  %.2fs / %.2fs", name.c_str(), std::fmod(std::max(0.0f, t), app.reference.duration()), app.reference.duration()); else ImGui::TextUnformatted(name.c_str());
+            ImGui::SameLine(); if (ImGui::SmallButton(app.referenceOverlay ? "split" : "overlay")) app.referenceOverlay = !app.referenceOverlay;
+            if (!app.referenceOverlay) { ImGui::SameLine(); if (ImGui::SmallButton(app.referenceVertical ? "side" : "stack")) app.referenceVertical = !app.referenceVertical; }
+            else { ImGui::SameLine(); ImGui::SetNextItemWidth(70 * S()); ImGui::SliderFloat("##op", &app.referenceOpacity, 0.05f, 1.0f, "%.2f"); }
+            if (app.reference.isVideo()) { ImGui::SameLine(); ImGui::SetNextItemWidth(70 * S()); ImGui::DragFloat("##off", &app.referenceOffset, 0.01f, -30.0f, 30.0f, "%+.2fs"); if (ImGui::IsItemHovered()) ImGui::SetTooltip("Time offset of the reference relative to the clip"); }
+            ImGui::SameLine(); if (ImGui::SmallButton(ICON_MD_CLOSE)) app.referenceOpen = false;
+            ImGui::PopFont(); ImGui::End();
+        } else app.sceneRect = glm::vec4(x0, y0, x1 - x0, y1 - y0);
+    }
     // top-left stats (AccuRIG: "Total tris / Character height")
     const Rig& r = app.pipe.rig;
     char buf[160];
@@ -1276,7 +1334,8 @@ void viewportOverlay(Application& app) {
     ImGui::End();
     // camera bookmark bar (top-right of the viewport): presets + 4 user slots
     {
-        ImGui::SetNextWindowPos(ImVec2(x1 - 10 * S(), vp->WorkPos.y + 8 * S()), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
+        const bool narrow = app.sceneRect.z < 760 * S();
+        ImGui::SetNextWindowPos(ImVec2(app.sceneRect.x + app.sceneRect.z - 10 * S(), vp->WorkPos.y + (narrow ? 52 : 8) * S()), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
         ImGui::SetNextWindowBgAlpha(0.35f);
         ImGui::Begin("##cams", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings);
         ImGui::PushFont(ui.fonts.small);
@@ -1290,7 +1349,7 @@ void viewportOverlay(Application& app) {
             if (set) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(kAccent.x, kAccent.y, kAccent.z, 0.55f));
             if (ImGui::Button(l, ImVec2(24 * S(), 22 * S()))) { if (ImGui::GetIO().KeyCtrl || !set) app.storeUserCam(i); else app.recallUserCam(i); }
             if (set) ImGui::PopStyleColor();
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip(set ? "Bookmark %d: click / F%d to recall, Ctrl+click / Ctrl+F%d to overwrite" : "Empty slot %d: click / Ctrl+F%d to store the current camera%.0s", i + 1, i + 1, i + 1);
+            if (ImGui::IsItemHovered()) { if (set) ImGui::SetTooltip("Bookmark %d: click / F%d to recall, Ctrl+click / Ctrl+F%d to overwrite", i + 1, i + 1, i + 1); else ImGui::SetTooltip("Empty slot %d: click / Ctrl+F%d to store the current camera", i + 1, i + 1); }
         }
         ImGui::PopFont();
         ImGui::End();

@@ -78,6 +78,7 @@ int Application::run() {
         if (opts_.renderFrames <= 0) glfwSetWindowShouldClose(window_, 1);
     }
     if (opts_.live) toggleLive();
+    if (!opts_.referencePath.empty()) loadReference(opts_.referencePath);
     if (opts_.startStep >= 0) setStep(opts_.startStep);
     if (opts_.rigTab >= 0) setRigTab(opts_.rigTab);
     camera.distance *= opts_.zoom; if (opts_.haveLookAt) camera.target = opts_.lookAt;
@@ -135,7 +136,8 @@ void Application::frame() {
     double now = glfwGetTime(); float dt = float(now - lastFrameTime_); lastFrameTime_ = now;
     glfwGetFramebufferSize(window_, &fbSize_.x, &fbSize_.y);
     if (fbSize_.x <= 0 || fbSize_.y <= 0) return;
-    view_ = camera.view(); proj_ = camera.projection(float(fbSize_.x) / float(fbSize_.y));
+    { int ww, wh; glfwGetWindowSize(window_, &ww, &wh); if (!referenceOpen || !reference.valid() || referenceOverlay) sceneRect = glm::vec4(0, 0, ww, wh); }
+    view_ = camera.view(); proj_ = camera.projection(std::max(1.0f, sceneRect.z) / std::max(1.0f, sceneRect.w));
 
     if (liveEnabled) {
         auto lf = live.poll();
@@ -168,11 +170,19 @@ void Application::frame() {
     const bool msaa = ensureMsaaTarget();
     glBindFramebuffer(GL_FRAMEBUFFER, msaa ? msaaFbo_ : 0);
     glViewport(0, 0, fbSize_.x, fbSize_.y);
-    glClearColor(0.235f, 0.235f, 0.235f, 1.0f); // viewport grey (theme::kViewportBg)
+    glClearColor(0.16f, 0.16f, 0.16f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    {   // scene sub-rectangle (window px, y-down) -> GL framebuffer px (y-up)
+        int ww, wh; glfwGetWindowSize(window_, &ww, &wh); float sx = float(fbSize_.x) / std::max(1, ww), sy = float(fbSize_.y) / std::max(1, wh);
+        int vx = int(sceneRect.x * sx), vy = int((wh - sceneRect.y - sceneRect.w) * sy), vw = std::max(1, int(sceneRect.z * sx)), vh = std::max(1, int(sceneRect.w * sy));
+        glViewport(vx, vy, vw, vh); glEnable(GL_SCISSOR_TEST); glScissor(vx, vy, vw, vh);
+        glClearColor(0.235f, 0.235f, 0.235f, 1.0f); // viewport grey (theme::kViewportBg)
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    }
     if (!glIsES()) glEnable(GL_MULTISAMPLE);
     drawScene();
     drawGizmos();
+    glDisable(GL_SCISSOR_TEST); glViewport(0, 0, fbSize_.x, fbSize_.y);
     if (msaa) { // resolve samples into the window
         glBindFramebuffer(GL_READ_FRAMEBUFFER, msaaFbo_); glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
         glBlitFramebuffer(0, 0, fbSize_.x, fbSize_.y, 0, 0, fbSize_.x, fbSize_.y, GL_COLOR_BUFFER_BIT, GL_NEAREST);
@@ -211,16 +221,14 @@ void Application::destroyMsaaTarget() {
 
 Ray Application::mouseRay() const {
     double mx, my; glfwGetCursorPos(window_, &mx, &my);
-    int ww, wh; glfwGetWindowSize(window_, &ww, &wh);
-    return screenPointToRay(float(mx), float(my), float(ww), float(wh), view_, proj_);
+    return screenPointToRay(float(mx) - sceneRect.x, float(my) - sceneRect.y, sceneRect.z, sceneRect.w, view_, proj_);
 }
 
 bool Application::project(const glm::vec3& w, glm::vec2& px) const {
     glm::vec4 c = proj_ * view_ * glm::vec4(w, 1.0f);
     if (c.w <= 0.0f) return false;
     c /= c.w;
-    int ww, wh; glfwGetWindowSize(window_, &ww, &wh);
-    px = glm::vec2((c.x * 0.5f + 0.5f) * ww, (1.0f - (c.y * 0.5f + 0.5f)) * wh);
+    px = glm::vec2(sceneRect.x + (c.x * 0.5f + 0.5f) * sceneRect.z, sceneRect.y + (1.0f - (c.y * 0.5f + 0.5f)) * sceneRect.w);
     return true;
 }
 
@@ -518,6 +526,15 @@ void Application::animateCameraTo(const CamPose& p, float seconds) {
     // shortest yaw path
     float d = camTo_.yaw - camFrom_.yaw; while (d > glm::pi<float>()) d -= glm::two_pi<float>(); while (d < -glm::pi<float>()) d += glm::two_pi<float>(); camTo_.yaw = camFrom_.yaw + d;
     camAnimT_ = 0.0f; camAnimDur_ = std::max(0.01f, seconds);
+}
+
+bool Application::loadReference(const std::string& path) {
+    std::string err;
+    if (!reference.load(path, &err, videoSettings.ffmpeg)) { status = "Reference: " + err; return false; }
+    referenceOpen = true;
+    status = reference.isVideo() ? "Reference video " + path + ": " + std::to_string(reference.frameCount()) + " frames @ " + std::to_string(int(reference.fps())) + " fps (" + std::to_string(reference.width()) + "x" + std::to_string(reference.height()) + ")"
+                                 : "Reference image " + path + " (" + std::to_string(reference.width()) + "x" + std::to_string(reference.height()) + ")";
+    return true;
 }
 
 bool Application::renderVideo(const std::string& path, const VideoSettings& settingsIn, bool withGizmos, const std::string& seq) {

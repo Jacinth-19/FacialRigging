@@ -3,6 +3,7 @@
 #define ICON_MIN_MD 0xe000
 #define ICON_MAX_MD 0xf8ff
 #define ICON_MD_FACE "\xee\xa1\xbc"  // face U+E87C
+#define ICON_MD_COMPARE "\xee\x8e\xb9"  // compare U+E3B9
 #define ICON_MD_PERSON "\xee\x9f\xbd"  // person U+E7FD
 #define ICON_MD_ACCESSIBILITY_NEW "\xee\xa4\xac"  // accessibility_new U+E92C
 #define ICON_MD_STRAIGHTEN "\xee\x90\x9c"  // straighten U+E41C

@@ -29,7 +29,7 @@ ctest --test-dir build                  # 32 unit tests
 ```
 
 Dependencies are vendored as submodules (GLFW, Dear ImGui, glm, Catch2, **Assimp**, **PortAudio**,
-**alsa-lib** headers, **Material Icons**; see `third_party/patches` for two small local patches).
+**alsa-lib** headers, **Material Icons**, **stb** (`stb_image` for reference images); see `third_party/patches` for two small local patches).
 `python3` is needed at build time (it unpacks the Material Icons webfont and generates the icon
 codepoint header from the submodule). On Linux the GUI needs X11 dev headers
 (`libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev`) for a window; without them
@@ -203,6 +203,13 @@ tools/run_headless.sh --model assets/models/ict_face/ict_face.obj --transcript "
 Camera **bookmarks**: the bar at the top-right of the viewport (and *View ▸ Camera*) has front / ¾ left /
 ¾ right / profile / top / back presets (`Shift+1..7`) and four user slots (`F1..F4` recall,
 `Ctrl+F1..F4` store); transitions are animated along the shortest yaw path.
+
+**Reference split view** (*View ▸ Reference* or the Check Animation page, headless `--reference f`):
+load a photo (`stb_image`: png / jpg / bmp / tga / gif) or a video (decoded once through ffmpeg into an
+in-memory frame store, ≤ 192 MB, 15 fps, ≤ 640 px wide) and it appears next to the 3D view - side by
+side or stacked with a draggable splitter, or as an adjustable-opacity **ghost overlay** on the render.
+Videos scrub in sync with the clip time (plus an offset) so mouth shapes can be compared frame by frame;
+picking, handles and labels all respect the reduced scene rectangle.
 
 ### Timeline editor
 

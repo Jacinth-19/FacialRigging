@@ -8,6 +8,7 @@
 #include "render/gizmo_renderer.h"
 #include "render/mesh_renderer.h"
 #include "render/video_export.h"
+#include "render/reference.h"
 #include <glm/glm.hpp>
 #include <string>
 #include <vector>
@@ -54,6 +55,7 @@ public:
         glm::vec3 lookAt{0.0f}; bool haveLookAt = false;   ///< --look-at x y z: camera target (mesh space)
         float zoom = 1.0f;                ///< camera distance multiplier at start (<1 = closer)
         bool clean = false;               ///< hide handles / bones / labels (review renders)
+        std::string referencePath;   ///< --reference image.png|clip.mp4 opens the split view
         std::string videoOut; float videoOrbit = 0.0f; int videoW = 1280, videoH = 720; float videoSeconds = -1.0f;   ///< --video out.mp4 [--orbit deg] [--video-size WxH] [--video-seconds s]
         bool keysDemo = false;            ///< seed a few key-layer keys on JawOpen + Head X and open the timeline in key mode (screenshots/tests)
         bool paintDemo = false;           ///< with paintBone: apply a scripted brush stroke across the cheek (headless demo/test)               ///< select the paint tool on this bone at start (screenshots / demos)
@@ -132,6 +134,11 @@ public:
     bool liveEnabled = false; std::string liveError; std::vector<float> liveWave; VisemeFrame liveViseme;
     void toggleLive(int device = -1);
     glm::ivec2 viewportSize() const { return fbSize_; }
+    /// Reference media split view. `sceneRect` (window pixels, y down) is where the 3D scene is drawn; the UI sets it
+    /// each frame (full viewport, or the left/top half when the reference panel is open). Rays/projection honour it.
+    ReferenceMedia reference; bool referenceOpen = false; bool referenceOverlay = false; float referenceOpacity = 0.5f; bool referenceSyncTime = true; float referenceOffset = 0.0f; float referenceSplit = 0.5f; bool referenceVertical = false;
+    glm::vec4 sceneRect{0, 0, 1, 1};       ///< x, y, w, h in window pixels
+    bool loadReference(const std::string& path);
     int msaaSamples = 4;                  ///< requested; change at runtime (View menu), applied next frame
     int msaaActive() const { return msaaActive_; }
     int msaaMax() const { return msaaMax_; }

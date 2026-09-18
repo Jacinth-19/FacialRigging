@@ -36,6 +36,7 @@ int main(int argc, char** argv) {
         else if (a == "--paint-demo") o.paintDemo = true;
         else if (a == "--zoom") o.zoom = std::stof(next());
         else if (a == "--video") o.videoOut = next();
+        else if (a == "--reference") o.referencePath = next();
         else if (a == "--orbit") o.videoOrbit = std::stof(next());
         else if (a == "--video-size") { std::string v = next(); auto x = v.find('x'); if (x != std::string::npos) { o.videoW = std::stoi(v.substr(0, x)); o.videoH = std::stoi(v.substr(x + 1)); } }
         else if (a == "--video-seconds") o.videoSeconds = std::stof(next());

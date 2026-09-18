@@ -40,7 +40,7 @@
 | Audio in exports | ✅ `.wav` sidecar + offsets (glTF `asset.extras.audio`, `.audio.json` manifests), `--embed-audio` buffer view in `.glb` | FBX has no audio container; manifest only |
 | Project files | ✅ `.frproj` (`src/app/project.*`): paths, orientation, settings, handles, painted skin, user/corrective shapes, pose, clip; GUI + CLI | Undo history is not persisted |
 | Video / turntable export | ✅ `render/video_export.cpp`: offscreen MSAA FBO → ffmpeg pipe (mp4 H.264 / webm VP9 / gif), audio muxed from the session WAV, orbit + pitch sway, loop, CRF; GUI *File ▸ Render video*, CLI `--video out.mp4 --orbit 360 --video-size WxH --video-seconds s`; falls back to a PPM sequence without ffmpeg | ffmpeg must be on PATH (or `VideoSettings::ffmpeg`) |
-| Camera bookmarks | ✅ 7 presets (front, ¾ L/R, profiles, top, back) + 4 user slots, animated transitions; viewport bar, View ▸ Camera, Shift+1..7 / F1..F4 / Ctrl+F1..F4 | Reference image / video split view: next |
+| Camera bookmarks + reference view | ✅ 7 presets (front, ¾ L/R, profiles, top, back) + 4 user slots, animated transitions; viewport bar, View ▸ Camera, Shift+1..7 / F1..F4 / Ctrl+F1..F4. `render/reference.cpp`: image (stb_image) / video (ffmpeg → RAM frame store) split view, side / stacked / ghost overlay, draggable splitter, time-synced scrubbing; `--reference f` | Video decode is not streamed (whole clip cached, capped at 192 MB) |
 | PBR-ish skin preview | ✅ shade mode 5: part materials, wrap-SSS + red bleed, GGX, analytic IBL, eye iris/catch-light, occlusion-shell pass, ACES; *Skin look* menu | Texture maps (albedo/normal) not loaded yet |
 | Audio encryption at rest | ❌ | Only needed once recordings are persisted |
 

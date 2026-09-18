@@ -275,11 +275,13 @@ if(FR_BUILD_APP)
     src/render/shader.cpp
     src/render/mesh_renderer.cpp
     src/render/video_export.cpp
+    src/render/reference.cpp
     src/render/gizmo_renderer.cpp
     src/ui/panels.cpp
     src/ui/theme.cpp)
   add_dependencies(facial_rigging fr_icon_font)
   target_link_libraries(facial_rigging PRIVATE fr_core imgui glfw fr_warnings)
+  target_include_directories(facial_rigging PRIVATE third_party/stb)
   target_compile_definitions(facial_rigging PRIVATE
     FR_SHADER_DIR="${CMAKE_SOURCE_DIR}/shaders"
     FR_ASSET_DIR="${CMAKE_SOURCE_DIR}/assets"

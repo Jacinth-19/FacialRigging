@@ -136,6 +136,25 @@ model runs in every build; `FR_WITH_TORCH` additionally allows TorchScript `.pt`
   extra blink at pause onsets, occasional double blinks) plus breathing (`src/anim/idle_motion.*`).
 - **Tongue.** ICT-style heads with a tongue part get a `Tongue` bone under `Jaw`; `L/T/D/N/TH` phones raise it.
 
+### Rig authoring: weight painting, sculpted shapes, correctives
+
+- **Weight painting** (`R`, or *Face Rig ▸ Weights*): Add / Subtract / Replace / Smooth brushes with
+  radius (`[` `]`), strength, falloff, X-symmetry and a front-facing filter; the viewport switches to
+  the bone-weight heat map of the bone being painted and the brush cursor follows the surface.
+  Weights stay normalised (other influences are rescaled). **Mirror L→R / R→L** copies weights across
+  `x = 0` with `EyeL↔EyeR`-style bone swapping; *Normalise / clean* drops near-zero influences.
+- **Bake pose as blendshape** (*Handles* tab): sculpt with free-form RBF handles (and any sliders),
+  then bake the result as a new sparse blendshape - optionally *residual only* (a corrective on top
+  of the active shapes) and/or split into `_L`/`_R`. The handles are zeroed and the new shape is
+  animatable and exported like the authored ones.
+- **Correctives** (*Correctives* tab): pick two drivers (default `JawOpen` × `MouthPucker`), pose both
+  at 1.0, fix the volume loss with handles, bake `JawOpen_MouthPucker`. From then on the corrective's
+  weight is `clamp(gain · A · B)` (or `min(A, B)`) whenever the drivers move - sliders, clip playback,
+  lip-sync and exports included.
+- **Undo everything**: every edit (handles, weights, brush strokes, bakes, rig rebuilds, model
+  transforms, clip painting, imports) pushes a labelled snapshot; *Edit* menu and toolbar show what
+  Ctrl+Z / Ctrl+Y will do.
+
 ### Timeline editor
 
 On *Check Animation* a dope-sheet opens under the viewport: a time ruler, **Words / Phones /

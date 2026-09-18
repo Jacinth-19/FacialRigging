@@ -35,6 +35,7 @@ const Curve<float>* AnimationClip::findBlendCurve(const std::string& target) con
 
 void AnimationClip::applyTo(Rig& rig, float t) const {
     for (const auto& c : blendCurves) rig.setBlendWeight(c.target, c.sample(t));
+    rig.applyCombinations();
     for (const auto& c : boneRotations) { int b = rig.skeleton.find(c.target); if (b >= 0) rig.skeleton.bones[b].poseRotation = c.sample(t); }
     for (const auto& c : boneTranslations) { int b = rig.skeleton.find(c.target); if (b >= 0) rig.skeleton.bones[b].poseTranslation = c.sample(t); }
     rig.syncControlPointsFromRig();

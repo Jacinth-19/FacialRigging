@@ -30,6 +30,9 @@ int main(int argc, char** argv) {
         else if (a == "--live") o.live = true;
         else if (a == "--ui-scale") o.uiScale = std::stof(next());
         else if (a == "--step") o.startStep = std::stoi(next());
+        else if (a == "--rig-tab") o.rigTab = std::stoi(next());
+        else if (a == "--paint-bone") o.paintBone = std::stoi(next());
+        else if (a == "--paint-demo") o.paintDemo = true;
         else if (a == "--emotion") o.emotion = next();
         else if (a == "--transcript") o.transcript = next();
         else if (a == "--emotion-amount") o.emotionAmount = std::stof(next());

@@ -77,6 +77,22 @@ int Application::run() {
     }
     if (opts_.live) toggleLive();
     if (opts_.startStep >= 0) setStep(opts_.startStep);
+    if (opts_.rigTab >= 0) setRigTab(opts_.rigTab);
+    if (opts_.paintBone >= 0 && size_t(opts_.paintBone) < pipe.rig.skeleton.bones.size()) { tool = Tool::PaintWeights; brush.bone = opts_.paintBone; meshRenderer.shadeMode = MeshRenderer::ShadeMode::BoneWeights; meshRenderer.heatBone = brush.bone;
+        if (opts_.paintDemo) {
+            // scripted stroke: Add on a diagonal across the model's left cheek, symmetric, then show the cursor
+            glm::vec3 lo = pipe.rig.mesh.boundsMin(), hi = pipe.rig.mesh.boundsMax(); float H = hi.y - lo.y;
+            brush.mode = WeightBrushMode::Add; brush.strength = 0.6f; brush.radius = 0.07f * H; brush.symmetric = true;
+            pushUndo("paint weights (demo)");
+            for (int k = 0; k <= 12; ++k) {
+                float u = float(k) / 12.0f;
+                glm::vec3 target(0.12f * (hi.x - lo.x) + 0.1f * (hi.x - lo.x) * u, lo.y + (0.62f - 0.12f * u) * H, hi.z + 1.0f);
+                auto hit = raycastMesh(Ray{target, glm::vec3(0, 0, -1)}, pipe.rig.mesh, nullptr);
+                if (hit) { applyBrushDab(hit->point); brushPos = hit->point; brushNormal = hit->normal; brushHover = true; }
+            }
+            status = "Demo stroke painted (" + std::to_string(brushStrokeChanges) + " vertex updates)";
+        }
+    }
     lastFrameTime_ = glfwGetTime();
     if (opts_.renderFrames > 0) {
         // Offscreen proof-of-render: step through the clip deterministically and dump frames.
@@ -205,11 +221,16 @@ void Application::handleViewportInput() {
         if (ImGui::IsKeyPressed(ImGuiKey_Q)) tool = Tool::Orbit;
         if (ImGui::IsKeyPressed(ImGuiKey_W)) tool = Tool::AddPoint;
         if (ImGui::IsKeyPressed(ImGuiKey_E)) tool = Tool::MovePoint;
+        if (ImGui::IsKeyPressed(ImGuiKey_R) && !io.KeyCtrl) tool = Tool::PaintWeights;
+        if (tool == Tool::PaintWeights) {
+            if (ImGui::IsKeyPressed(ImGuiKey_LeftBracket)) brush.radius = std::max(0.005f, brush.radius * 0.8f);
+            if (ImGui::IsKeyPressed(ImGuiKey_RightBracket)) brush.radius = std::min(2.0f, brush.radius * 1.25f);
+        }
         if (ImGui::IsKeyPressed(ImGuiKey_Space) && pipe.clip.duration > 0) playing = !playing;
         for (int k = 0; k < 5; ++k) if (ImGui::IsKeyPressed(ImGuiKey(int(ImGuiKey_1) + k))) meshRenderer.shadeMode = MeshRenderer::ShadeMode(k);
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z)) undo();
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Y)) redo();
-        if (ImGui::IsKeyPressed(ImGuiKey_Delete) && selectedPoint >= 0) { pushUndo(); pipe.rig.removeControlPoint(selectedPoint); selectedPoint = -1; }
+        if (ImGui::IsKeyPressed(ImGuiKey_Delete) && selectedPoint >= 0) { pushUndo("delete handle"); pipe.rig.removeControlPoint(selectedPoint); selectedPoint = -1; }
     }
     double mx, my; glfwGetCursorPos(window_, &mx, &my);
     if ((io.WantCaptureMouse || !viewportContains(float(mx), float(my))) && !dragging_) return;
@@ -232,7 +253,7 @@ void Application::handleViewportInput() {
             auto hit = raycastMesh(r, pipe.rig.mesh, nullptr);
             if (!hit && deformed) hit = raycastMesh(r, pipe.rig.mesh, deformed);
             if (hit) {
-                pushUndo();
+                pushUndo("add handle");
                 int id = pipe.rig.addControlPoint(hit->point);
                 if (newPointBinding == BindingType::FreeForm) pipe.rig.bindFreeForm(id, newPointRadius);
                 else if (newPointBinding == BindingType::BlendShape && !pipe.rig.blendShapes.empty()) pipe.rig.bindToBlendShape(id, newPointShape, hit->normal, 0.05f);
@@ -242,11 +263,30 @@ void Application::handleViewportInput() {
             }
         } else if (lmb) camera.orbit(-float(delta.x) * 0.005f, float(delta.y) * 0.005f);
         break;
+    case Tool::PaintWeights: {
+        Ray r = mouseRay();
+        auto hit = raycastMesh(r, pipe.rig.mesh, nullptr);
+        brushHover = hit.has_value();
+        if (hit) { brushPos = hit->point; brushNormal = hit->normal; }
+        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && hit) {
+            pushUndo("paint weights"); dragging_ = true; brushStrokeChanges = 0; meshRenderer.shadeMode = MeshRenderer::ShadeMode::BoneWeights; meshRenderer.heatBone = brush.bone;
+            applyBrushDab(hit->point); lastBrush_ = hit->point;
+        } else if (dragging_) {
+            if (!lmb) { dragging_ = false; char b[96]; std::snprintf(b, sizeof b, "Painted %s: %d vertex updates", pipe.rig.skeleton.bones[size_t(brush.bone)].name.c_str(), brushStrokeChanges); status = b; break; }
+            if (hit) {
+                // space the dabs at ~1/4 radius along the stroke so fast moves don't leave gaps
+                glm::vec3 d = hit->point - lastBrush_; float len = glm::length(d); float step = std::max(brush.radius * 0.25f, 1e-4f);
+                int nDabs = std::max(1, int(len / step));
+                for (int k = 1; k <= nDabs; ++k) applyBrushDab(lastBrush_ + d * (float(k) / float(nDabs)));
+                lastBrush_ = hit->point;
+            }
+        } else if (lmb && !hit) camera.orbit(-float(delta.x) * 0.005f, float(delta.y) * 0.005f);
+        break; }
     case Tool::MovePoint:
         if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
             int id = pickControlPoint(mouseRay(), 14.0f);
             if (id >= 0) {
-                selectedPoint = id; dragging_ = true; pushUndo();
+                selectedPoint = id; dragging_ = true; pushUndo("move handle");
                 const auto& c = pipe.rig.controlPoints[id];
                 dragPlaneN_ = -glm::normalize(glm::vec3(glm::inverse(view_)[2])); // camera-facing plane
                 Ray r = mouseRay();
@@ -296,6 +336,13 @@ void Application::drawGizmos() {
             }
         }
     }
+    if (tool == Tool::PaintWeights && brushHover) {
+        glm::vec4 col = brush.mode == WeightBrushMode::Subtract ? glm::vec4(1, 0.35f, 0.3f, 0.9f) : brush.mode == WeightBrushMode::Smooth ? glm::vec4(0.4f, 0.7f, 1, 0.9f) : glm::vec4(0.55f, 0.78f, 0.18f, 0.9f);
+        gizmos.circle(brushPos, brushNormal, brush.radius, col);
+        gizmos.circle(brushPos, brushNormal, brush.radius * 0.5f * (1.0f - 0.5f * brush.falloff), {col.r, col.g, col.b, 0.4f});
+        gizmos.line(brushPos, brushPos + brushNormal * brush.radius * 0.5f, col);
+        if (brush.symmetric && std::abs(brushPos.x) > 1e-5f) gizmos.circle(brushPos * glm::vec3(-1, 1, 1), brushNormal * glm::vec3(-1, 1, 1), brush.radius, {col.r, col.g, col.b, 0.45f});
+    }
     gizmos.flush(proj_ * view_, 12.0f, false);
 }
 
@@ -326,22 +373,67 @@ void Application::toggleLive(int device) {
     else { liveError = err; status = "Live capture failed: " + err; }
 }
 
-void Application::pushUndo() { undo_.push_back({pipe.rig.controlPoints, pipe.rig.blendWeights(), pipe.clip}); if (undo_.size() > 64) undo_.erase(undo_.begin()); redo_.clear(); }
+size_t UndoState::bytes() const {
+    size_t b = skin.size() * sizeof(VertexInfluence) + controlPoints.size() * sizeof(ControlPoint) + meshPositions.size() * sizeof(glm::vec3);
+    for (const auto& bs : blendShapes) b += bs.indices.size() * (sizeof(uint32_t) + sizeof(glm::vec3));
+    for (const auto& c : clip.blendCurves) b += c.values.size() * 8;
+    return b + 1024;
+}
+namespace {
+UndoState snapshot(const Pipeline& pipe, const char* label, bool meshChanged) {
+    UndoState u; u.label = label; const Rig& r = pipe.rig;
+    u.skeleton = r.skeleton; u.skin = r.skin; u.blendShapes = r.blendShapes; u.controlPoints = r.controlPoints; u.combinations = r.combinations; u.skinFirst = r.skinFirst; u.clip = pipe.clip;
+    u.meshChanged = meshChanged; if (meshChanged) u.meshPositions = r.mesh.positions;
+    return u;
+}
+void restore(Application& app, const UndoState& u) {
+    Rig& r = app.pipe.rig;
+    bool structural = u.skeleton.bones.size() != r.skeleton.bones.size() || u.blendShapes.size() != r.blendShapes.size() || u.skin.size() != r.skin.size() || u.meshChanged;
+    if (u.meshChanged && u.meshPositions.size() == r.mesh.positions.size()) { r.mesh.positions = u.meshPositions; r.mesh.recomputeNormals(); }
+    r.skeleton = u.skeleton; r.skin = u.skin; r.blendShapes = u.blendShapes; r.controlPoints = u.controlPoints; r.combinations = u.combinations; r.skinFirst = u.skinFirst; app.pipe.clip = u.clip;
+    if (!structural) {
+        // shapes' deltas may still differ (bake replaced a corrective) - compare cheaply by index counts
+        for (size_t i = 0; i < u.blendShapes.size() && !structural; ++i) structural |= u.blendShapes[i].indices.size() != r.blendShapes[i].indices.size();
+    }
+    if (app.pipe.clip.duration > 0) app.pipe.clip.applyTo(r, app.playTime); else r.applyCombinations();
+    if (structural) app.reuploadMesh(); else app.reuploadWeights();
+    if (app.selectedPoint >= int(r.controlPoints.size())) app.selectedPoint = -1;
+}
+} // namespace
+
+void Application::pushUndo(const char* label, bool meshChanged) {
+    undo_.push_back(snapshot(pipe, label, meshChanged));
+    size_t total = 0; for (const auto& u : undo_) total += u.bytes();
+    const size_t budget = size_t(256) << 20;   // 256 MB of history
+    while ((undo_.size() > 64 || total > budget) && undo_.size() > 1) { total -= undo_.front().bytes(); undo_.erase(undo_.begin()); }
+    redo_.clear();
+}
 void Application::undo() {
     if (undo_.empty()) return;
-    redo_.push_back({pipe.rig.controlPoints, pipe.rig.blendWeights(), pipe.clip});
-    pipe.rig.controlPoints = undo_.back().controlPoints; pipe.rig.setBlendWeights(undo_.back().blendWeights); pipe.clip = undo_.back().clip; undo_.pop_back();
-    if (pipe.clip.duration > 0) pipe.clip.applyTo(pipe.rig, playTime);
-    if (selectedPoint >= int(pipe.rig.controlPoints.size())) selectedPoint = -1;
+    UndoState cur = snapshot(pipe, undo_.back().label.c_str(), undo_.back().meshChanged);
+    redo_.push_back(std::move(cur));
+    UndoState u = std::move(undo_.back()); undo_.pop_back();
+    restore(*this, u); status = std::string("Undo: ") + u.label;
 }
 void Application::redo() {
     if (redo_.empty()) return;
-    undo_.push_back({pipe.rig.controlPoints, pipe.rig.blendWeights(), pipe.clip});
-    pipe.rig.controlPoints = redo_.back().controlPoints; pipe.rig.setBlendWeights(redo_.back().blendWeights); pipe.clip = redo_.back().clip; redo_.pop_back();
-    if (pipe.clip.duration > 0) pipe.clip.applyTo(pipe.rig, playTime);
+    UndoState cur = snapshot(pipe, redo_.back().label.c_str(), redo_.back().meshChanged);
+    undo_.push_back(std::move(cur));
+    UndoState u = std::move(redo_.back()); redo_.pop_back();
+    restore(*this, u); status = std::string("Redo: ") + u.label;
+}
+void Application::reuploadWeights() { meshRenderer.uploadWeights(pipe.rig); }
+void Application::applyBrushDab(const glm::vec3& centre) {
+    glm::vec3 viewDir = -glm::normalize(glm::vec3(glm::inverse(view_)[2]));
+    int n = paintWeights(pipe.rig, brush, centre, viewDir, &adjacency, &mirrorMap);
+    if (n > 0) { brushStrokeChanges += n; reuploadWeights(); }
 }
 
-void Application::reuploadMesh() { meshRenderer.upload(pipe.rig); }
+void Application::reuploadMesh() {
+    meshRenderer.upload(pipe.rig);
+    if (adjacencyFor_ != pipe.rig.mesh.vertexCount() || adjacency.empty()) { adjacency.build(pipe.rig.mesh); mirrorMap.build(pipe.rig.mesh); adjacencyFor_ = pipe.rig.mesh.vertexCount(); }
+    glm::vec3 e = pipe.rig.mesh.boundsMax() - pipe.rig.mesh.boundsMin(); if (brush.radius > e.y) brush.radius = e.y * 0.08f;
+}
 
 void Application::loadModel(const std::string& path) {
     std::string err;

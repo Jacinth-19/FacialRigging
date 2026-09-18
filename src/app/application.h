@@ -1,5 +1,6 @@
 #pragma once
 #include "app/pipeline.h"
+#include "rig/rig_tools.h"
 #include "audio/live_capture.h"
 #include "core/camera.h"
 #include "core/raycast.h"
@@ -13,7 +14,18 @@ struct GLFWwindow;
 
 namespace fr {
 
-struct UndoState { std::vector<ControlPoint> controlPoints; std::vector<float> blendWeights; AnimationClip clip; };
+/// Full rig-state snapshot: skeleton pose + structure, skin weights, blendshapes (sparse), handles,
+/// correctives and the clip. The mesh itself is shared (never edited in place) so a snapshot costs
+/// roughly skin (32 B/vertex) + shapes; the stack is trimmed by an approximate byte budget.
+struct UndoState {
+    std::string label;
+    Skeleton skeleton; std::vector<VertexInfluence> skin; std::vector<BlendShape> blendShapes;
+    std::vector<ControlPoint> controlPoints; std::vector<CombinationShape> combinations; bool skinFirst = true;
+    AnimationClip clip;
+    bool meshChanged = false;   ///< the mesh (vertex positions) changed too - stored in `mesh`
+    std::vector<glm::vec3> meshPositions;
+    size_t bytes() const;
+};
 
 /// Interactive tool: viewport + ImGui panels. Owns a Pipeline (rig/audio/clip) and edits it.
 class Application {
@@ -34,6 +46,9 @@ public:
         bool live = false;                ///< start microphone capture on launch
         float uiScale = 1.0f;             ///< extra UI scale on top of the monitor content scale
         int startStep = -1;               ///< wizard step to open (0..4), -1 = automatic
+        int rigTab = -1;                  ///< Face Rig tab to open (0 handles, 1 weights, 2 correctives, 3 shapes, 4 bones)
+        int paintBone = -1;
+        bool paintDemo = false;           ///< with paintBone: apply a scripted brush stroke across the cheek (headless demo/test)               ///< select the paint tool on this bone at start (screenshots / demos)
         std::string emotion;              ///< performance-layer emotion preset for generation
         float emotionAmount = 0.8f;
         std::string transcript;
@@ -50,7 +65,13 @@ public:
     OrbitCamera camera;
     MeshRenderer meshRenderer;
     GizmoRenderer gizmos;
-    enum class Tool { Orbit, AddPoint, MovePoint };
+    enum class Tool { Orbit, AddPoint, MovePoint, PaintWeights };
+    WeightBrush brush;                 ///< paint-weights tool settings
+    VertexAdjacency adjacency;         ///< built on model load (smooth brush)
+    MirrorMap mirrorMap;               ///< built on model load (mirror weights / bake L-R)
+    bool brushHover = false; glm::vec3 brushPos{0}, brushNormal{0, 0, 1};
+    int brushStrokeChanges = 0;
+    void applyBrushDab(const glm::vec3& centre);
     Tool tool = Tool::Orbit;
     BindingType newPointBinding = BindingType::FreeForm;
     int newPointShape = 0;
@@ -62,8 +83,12 @@ public:
     // status
     std::string status, exportPath = "out/scene.glb";
     std::vector<UndoState> undo_, redo_;
-    void pushUndo();
+    void pushUndo(const char* label = "edit", bool meshChanged = false);
     void undo(); void redo();
+    bool canUndo() const { return !undo_.empty(); } bool canRedo() const { return !redo_.empty(); }
+    const char* undoLabel() const { return undo_.empty() ? "" : undo_.back().label.c_str(); }
+    const char* redoLabel() const { return redo_.empty() ? "" : redo_.back().label.c_str(); }
+    void reuploadWeights();            ///< skin weights only (after painting)
     void reuploadMesh();
     void loadModel(const std::string& path);
     void loadAudio(const std::string& path);
@@ -105,6 +130,7 @@ private:
     void drawScene();
     void drawGizmos();
     Ray mouseRay() const;
+    glm::vec3 lastBrush_{0}; size_t adjacencyFor_ = 0;
     int pickControlPoint(const Ray& r, float pixelRadius) const;
 };
 

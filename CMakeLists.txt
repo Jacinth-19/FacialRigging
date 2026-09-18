@@ -48,6 +48,7 @@ add_library(fr_core STATIC
   src/core/raycast.cpp
   src/core/camera.cpp
   src/rig/rig.cpp
+  src/rig/rig_tools.cpp
   src/rig/blendshape_io.cpp
   src/rig/rbf_deformer.cpp
   src/audio/wav_io.cpp
@@ -296,7 +297,8 @@ if(FR_BUILD_TESTS)
     tests/test_ml_live.cpp
     tests/test_parts.cpp
     tests/test_features.cpp
-    tests/test_speech_model.cpp)
+    tests/test_speech_model.cpp
+    tests/test_rig_tools.cpp)
   target_link_libraries(fr_tests PRIVATE fr_core Catch2::Catch2WithMain fr_warnings)
   target_compile_definitions(fr_tests PRIVATE FR_ASSET_DIR="${CMAKE_SOURCE_DIR}/assets")
 endif()

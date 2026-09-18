@@ -12,6 +12,7 @@ void notifyModelLoaded(bool ok);
 void notifyRigBuilt();
 void notifyClipGenerated();
 void setStep(int step);
+void setRigTab(int tab);   ///< 0 handles, 1 weights, 2 correctives, 3 blendshapes, 4 bones
 /// True when window pixel (x, y) lies over the 3D viewport (not the side columns).
 bool viewportContains(float x, float y);
 } // namespace fr

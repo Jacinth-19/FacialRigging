@@ -90,6 +90,24 @@ std::vector<float> Rig::blendWeights() const {
 }
 void Rig::setBlendWeights(const std::vector<float>& w) {
     for (size_t i = 0; i < w.size() && i < blendShapes.size(); ++i) blendShapes[i].weight = w[i];
+    applyCombinations();
+}
+
+float Rig::combinationWeight(const CombinationShape& c, float wA, float wB) {
+    float w = c.useMin ? std::min(wA, wB) : wA * wB;
+    return std::clamp(w * c.gain, 0.0f, 1.0f);
+}
+int Rig::findCombination(const std::string& shape) const {
+    for (size_t i = 0; i < combinations.size(); ++i) if (combinations[i].shape == shape) return int(i);
+    return -1;
+}
+int Rig::applyCombinations() {
+    int n = 0;
+    for (const auto& c : combinations) {
+        int s = findBlendShape(c.shape); if (s < 0) continue;
+        blendShapes[size_t(s)].weight = combinationWeight(c, blendWeight(c.driverA), blendWeight(c.driverB)); ++n;
+    }
+    return n;
 }
 void Rig::resetPose() {
     for (auto& b : blendShapes) b.weight = 0.0f;

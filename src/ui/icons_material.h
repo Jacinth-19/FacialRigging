@@ -40,6 +40,9 @@
 #define ICON_MD_AUTORENEW "\xee\xa1\xa3"  // autorenew U+E863
 #define ICON_MD_UNDO "\xee\x85\xa6"  // undo U+E166
 #define ICON_MD_REDO "\xee\x85\x9a"  // redo U+E15A
+#define ICON_MD_BRUSH "\xee\x8e\xae"  // brush U+E3AE
+#define ICON_MD_FLIP "\xee\x8f\xa8"  // flip U+E3E8
+#define ICON_MD_SAVE_ALT "\xee\x85\xb1"  // save_alt U+E171
 #define ICON_MD_RESTART_ALT "\xef\x81\x93"  // restart_alt U+F053
 #define ICON_MD_TUNE "\xee\x90\xa9"  // tune U+E429
 #define ICON_MD_CIRCLE "\xee\xbd\x8a"  // circle U+EF4A

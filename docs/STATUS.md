@@ -14,7 +14,7 @@
 | FBX export | ✅ Assimp 5.4.3 writer (default, `src/export/assimp_fbx_exporter.cpp`), FBX SDK still optional | Binary FBX 7.4 with mesh, skin, 8 morph targets, jaw rotation + morph-weight curves; verified by Assimp re-import in tests (see `third_party/patches`) |
 | Variations | ✅ `parseVariation` | |
 | Arena agent integration | ✅ `tools/arena_task.yaml`, `tools/run_arena_task.py` | |
-| Tests | ✅ 42 Catch2 cases (43 with LibTorch) | FBX round-trip, trained mapper sanity, live pipeline on the test-signal device, OBJ parts / FRBS round-trip, ICT rig binding |
+| Tests | ✅ 47 Catch2 cases (48 with LibTorch) | FBX round-trip, trained mapper sanity, live pipeline on the test-signal device, OBJ parts / FRBS round-trip, ICT rig binding |
 | Cross-platform | Linux verified, incl. **headless rendering** via `--headless` (GLFW null platform + EGL pbuffer, SwiftShader/Mesa) | Windows/macOS untested |
 | Live microphone input | ✅ `src/audio/live_capture.*` (PortAudio, static submodule) + “Live Microphone” panel / `--live` | ALSA host API compiled in from the `alsa-lib` submodule headers; built-in **test-signal device (-2)** exercises the whole live path without hardware (`fr_cli --live-test -2 2`, unit test). Sandbox has no `libasound.so.2`/devices → real hardware needed to hear audio |
 | ML lip-sync | ✅ `MlVisemeMapper` behind `VisemeMapper` (`--mapper ml [--model-pt x.pt]`) | LibTorch is not a submodule (binary dist): point `TORCH_ROOT` at a LibTorch or `torch` wheel dir |
@@ -31,6 +31,10 @@
 | Stochastic idle motion | ✅ `src/anim/idle_motion.*`: Weibull-renewal blinks (faster while speaking, extra draw at pause onsets, double blinks), breathing with inhale cue | |
 | Tongue | ✅ `Tongue` bone (child of Jaw) from the tongue part; `Rig::setTongue(up,out)` driven by the phone class | |
 | Timeline editor | ✅ viewport dope-sheet (`panels.cpp` `timeline::`): ruler, word/phone/viseme lanes, paintable curves, range selection with gain/offset/smooth/flatten, zoom/scroll, undo of clip edits | Bone-curve editing and key-level (non-baked) editing not yet |
+| Weight painting | ✅ `src/rig/rig_tools.*` brush (Add/Subtract/Replace/Smooth, falloff, symmetric, front-facing-only) in the viewport with heat-map feedback (tool `R`, `[ ]` radius); **Mirror weights L↔R** with L/R bone swap; normalise/clean | |
+| Blendshape sculpt from handles | ✅ *Handles ▸ Bake pose as blendshape*: free-form (RBF) sculpt + active shapes → new sparse shape (residual-only option, L/R split) | |
+| Corrective / combination shapes | ✅ `Rig::combinations` (`w = clamp(gain·A·B)` or min), evaluated on `setBlendWeights`/clip playback; *Correctives* tab bakes `A_B` from the posed fix; exported like any shape | Correctives are baked into exports as static shapes; driver logic itself is not exported (FBX/glTF have no expression graph) |
+| Undo for everything | ✅ labelled snapshots of skeleton, skin, shapes, handles, correctives, clip (and mesh on transforms); 64 steps / 256 MB budget; menu + toolbar show the label | |
 | Audio encryption at rest | ❌ | Only needed once recordings are persisted |
 
 ## Running here (sandbox, no GPU / no X11)

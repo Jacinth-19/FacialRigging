@@ -4,6 +4,7 @@
 #include "ui/panels.h"
 #include "ui/theme.h"
 #include "app/application.h"
+#include "rig/rig_tools.h"
 #include "audio/viseme_mapper.h"
 #include "audio/phoneme_aligner.h"
 #include "audio/ml_viseme_mapper.h"
@@ -40,6 +41,9 @@ struct UiState {
     bool showExportDialog = false, showImportClip = false;
     std::vector<AudioDevice> devs; bool devsListed = false; int devSel = -1; std::string devErr;
     Fonts fonts; float scale = 1.0f;
+    int rigTabRequest = -1;
+    // bake / correctives
+    char bakeName[64] = "Custom"; bool bakeResidual = true, bakeSplit = false; int corrA = 0, corrB = 0;
     // timeline editor
     bool timelineOpen = true; float tlZoom = 1.0f, tlScroll = 0.0f;   // seconds visible = duration / zoom; scroll in seconds
     float selA = -1.0f, selB = -1.0f;                                   // time-range selection (seconds), selA<0 = none
@@ -70,10 +74,10 @@ void menuBar(Application& app) {
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Edit")) {
-            if (ImGui::MenuItem("Undo", "Ctrl+Z")) app.undo();
-            if (ImGui::MenuItem("Redo", "Ctrl+Y")) app.redo();
+            if (ImGui::MenuItem((std::string("Undo ") + app.undoLabel()).c_str(), "Ctrl+Z", false, app.canUndo())) app.undo();
+            if (ImGui::MenuItem((std::string("Redo ") + app.redoLabel()).c_str(), "Ctrl+Y", false, app.canRedo())) app.redo();
             ImGui::Separator();
-            if (ImGui::MenuItem("Reset Pose")) { app.pushUndo(); app.pipe.rig.resetPose(); app.playing = false; app.playTime = 0; }
+            if (ImGui::MenuItem("Reset Pose")) { app.pushUndo("reset pose"); app.pipe.rig.resetPose(); app.playing = false; app.playTime = 0; }
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Mode")) {
@@ -231,7 +235,7 @@ void pageCheck(Application& app) {
 
     SectionLabel("Rotate Model :");
     auto rot = [&](const char* label, const glm::mat3& R, const char* tip) {
-        if (ImGui::Button(label, ImVec2(92 * S(), 30 * S()))) { p.transformModel(R); app.reuploadMesh(); app.pushUndo(); ui.stepDone[StepRig] = false; }
+        if (ImGui::Button(label, ImVec2(92 * S(), 30 * S()))) { app.pushUndo("transform model", true); p.transformModel(R); app.reuploadMesh(); ui.stepDone[StepRig] = false; }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
         ImGui::SameLine();
     };
@@ -273,7 +277,7 @@ void pageCheck(Application& app) {
     }
     ImGui::Dummy(ImVec2(0, 6 * S()));
     if (PrimaryButton(ICON_MD_FACE_RETOUCHING_NATURAL "  Rig Face", ImVec2(-1, 36 * S()), m.vertexCount() > 0)) {
-        app.pushUndo(); p.buildDefaultRig(); app.reuploadMesh(); app.status = p.log.back();
+        app.pushUndo("rig face"); p.buildDefaultRig(); app.reuploadMesh(); app.status = p.log.back();
         ui.stepDone[StepCheck] = ui.stepDone[StepRig] = true; ui.step = StepRig;
     }
 }
@@ -302,7 +306,7 @@ void controlPointEditor(Application& app) {
         ImGui::SameLine();
     };
     if (ImGui::Checkbox("Symmetry", &ui.symmetry)) {} rig.forceSymmetry = ui.symmetry; ImGui::SameLine();
-    toolBtn(ICON_MD_3D_ROTATION, Application::Tool::Orbit); toolBtn(ICON_MD_ADD_LOCATION_ALT, Application::Tool::AddPoint); toolBtn(ICON_MD_OPEN_WITH, Application::Tool::MovePoint); ImGui::TextColored(kTextDim, "%s", app.tool == Application::Tool::Orbit ? "Orbit (Q)" : app.tool == Application::Tool::AddPoint ? "Add point (W)" : "Move point (E)"); ImGui::NewLine();
+    toolBtn(ICON_MD_3D_ROTATION, Application::Tool::Orbit); toolBtn(ICON_MD_ADD_LOCATION_ALT, Application::Tool::AddPoint); toolBtn(ICON_MD_OPEN_WITH, Application::Tool::MovePoint); ImGui::TextColored(kTextDim, "%s", app.tool == Application::Tool::Orbit ? "Orbit (Q)" : app.tool == Application::Tool::AddPoint ? "Add point (W)" : app.tool == Application::Tool::MovePoint ? "Move point (E)" : "Paint weights (R)"); ImGui::NewLine();
     if (ImGui::BeginTable("cps", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerH, ImVec2(0, 150 * S()))) {
         ImGui::TableSetupColumn("Name"); ImGui::TableSetupColumn("Binding"); ImGui::TableSetupColumn("Target"); ImGui::TableHeadersRow();
         for (size_t i = 0; i < rig.controlPoints.size(); ++i) {
@@ -325,18 +329,18 @@ void controlPointEditor(Application& app) {
         ImGui::SetNextItemWidth(-1); if (ImGui::InputText("##name", name, sizeof name)) c.name = name;
         int bt = int(c.binding);
         ImGui::SetNextItemWidth(-1);
-        if (ImGui::Combo("##binding", &bt, "Unbound\0Bone\0BlendShape\0FreeForm\0")) { app.pushUndo(); c.binding = BindingType(bt); c.offset = glm::vec3(0); if (c.binding != BindingType::FreeForm) c.target = 0; }
+        if (ImGui::Combo("##binding", &bt, "Unbound\0Bone\0BlendShape\0FreeForm\0")) { app.pushUndo("change binding"); c.binding = BindingType(bt); c.offset = glm::vec3(0); if (c.binding != BindingType::FreeForm) c.target = 0; }
         ImGui::SetNextItemWidth(-1);
         if (c.binding == BindingType::Bone && !rig.skeleton.bones.empty()) {
             int t = std::max(c.target, 0);
             if (ImGui::BeginCombo("##bone", rig.skeleton.bones[std::min<size_t>(t, rig.skeleton.bones.size() - 1)].name.c_str())) {
-                for (size_t i = 0; i < rig.skeleton.bones.size(); ++i) if (ImGui::Selectable(rig.skeleton.bones[i].name.c_str(), int(i) == t)) { app.pushUndo(); rig.bindToBone(app.selectedPoint, int(i)); }
+                for (size_t i = 0; i < rig.skeleton.bones.size(); ++i) if (ImGui::Selectable(rig.skeleton.bones[i].name.c_str(), int(i) == t)) { app.pushUndo("bind to bone"); rig.bindToBone(app.selectedPoint, int(i)); }
                 ImGui::EndCombo();
             }
         } else if (c.binding == BindingType::BlendShape && !rig.blendShapes.empty()) {
             int t = std::max(c.target, 0);
             if (ImGui::BeginCombo("##bs", rig.blendShapes[std::min<size_t>(t, rig.blendShapes.size() - 1)].name.c_str())) {
-                for (size_t i = 0; i < rig.blendShapes.size(); ++i) if (ImGui::Selectable(rig.blendShapes[i].name.c_str(), int(i) == t)) { app.pushUndo(); rig.bindToBlendShape(app.selectedPoint, int(i), c.driveAxis, c.driveRange); }
+                for (size_t i = 0; i < rig.blendShapes.size(); ++i) if (ImGui::Selectable(rig.blendShapes[i].name.c_str(), int(i) == t)) { app.pushUndo("bind to shape"); rig.bindToBlendShape(app.selectedPoint, int(i), c.driveAxis, c.driveRange); }
                 ImGui::EndCombo();
             }
             ImGui::SetNextItemWidth(-1); ImGui::DragFloat3("##axis", &c.driveAxis.x, 0.01f, -1, 1, "axis %.2f");
@@ -346,15 +350,107 @@ void controlPointEditor(Application& app) {
         if (ImGui::DragFloat3("##off", &off.x, 0.002f, -0.5f, 0.5f, "%.3f")) rig.moveControlPoint(app.selectedPoint, off);
         if (WideButton("Zero offset", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f - 4 * S(), 26 * S()))) rig.moveControlPoint(app.selectedPoint, glm::vec3(0));
         ImGui::SameLine();
-        if (WideButton("Delete", ImVec2(-1, 26 * S()))) { app.pushUndo(); rig.removeControlPoint(app.selectedPoint); app.selectedPoint = -1; }
+        if (WideButton("Delete", ImVec2(-1, 26 * S()))) { app.pushUndo("delete handle"); rig.removeControlPoint(app.selectedPoint); app.selectedPoint = -1; }
     }
+    // ---- bake the current sculpt (free-form handles + active shapes) into a new blendshape
+    Rule(); SectionLabel("Bake pose as blendshape :");
+    bool anyFree = false; for (const auto& c : rig.controlPoints) anyFree |= c.binding == BindingType::FreeForm && glm::dot(c.offset, c.offset) > 1e-10f;
+    ImGui::TextWrapped("Sculpt with free-form handles (and any shape sliders), then bake the result as a new shape you can animate and export.");
+    ImGui::SetNextItemWidth(-1); ImGui::InputTextWithHint("##bakeName", "shape name", ui.bakeName, sizeof ui.bakeName);
+    ImGui::Checkbox("Residual only", &ui.bakeResidual); if (ImGui::IsItemHovered()) ImGui::SetTooltip("Store only what the handles add on top of the active shapes (a corrective), not the shapes themselves.");
+    ImGui::SameLine(); ImGui::Checkbox("Split L / R", &ui.bakeSplit); if (ImGui::IsItemHovered()) ImGui::SetTooltip("Create name_L (x>0) and a mirrored name_R.");
+    if (PrimaryButton(ICON_MD_SAVE_ALT "  Bake as new blendshape", ImVec2(-1, 30 * S()), anyFree || std::any_of(rig.blendShapes.begin(), rig.blendShapes.end(), [](const BlendShape& b) { return b.weight > 1e-4f; }))) {
+        app.pushUndo("bake blendshape");
+        BakeShapeOptions o; o.name = ui.bakeName[0] ? ui.bakeName : "Custom"; o.subtractExisting = ui.bakeResidual; o.mirrorToOtherSide = ui.bakeSplit;
+        int idx = bakePoseAsBlendShape(rig, o, &app.mirrorMap);
+        if (idx >= 0) { rig.setBlendWeight(idx, 1.0f); if (ui.bakeSplit && idx + 1 < int(rig.blendShapes.size())) rig.setBlendWeight(idx + 1, 1.0f); app.reuploadMesh(); app.status = "Baked '" + rig.blendShapes[size_t(idx)].name + "' (" + std::to_string(rig.blendShapes[size_t(idx)].indices.size()) + " vertices)"; app.meshRenderer.shadeMode = MeshRenderer::ShadeMode::ShapeInfluence; app.meshRenderer.heatShape = idx; }
+        else { app.status = "Nothing to bake - move a free-form handle first"; app.undo(); }
+    }
+}
+
+// ---- weight painting tab
+void weightPaintEditor(Application& app) {
+    Rig& rig = app.pipe.rig; WeightBrush& b = app.brush;
+    if (!rig.hasSkin()) { ImGui::TextWrapped("No skin weights on this rig."); return; }
+    bool paintTool = app.tool == Application::Tool::PaintWeights;
+    if (PrimaryButton(paintTool ? ICON_MD_BRUSH "  Painting - drag on the face" : ICON_MD_BRUSH "  Paint weights (R)", ImVec2(-1, 30 * S()))) { app.tool = paintTool ? Application::Tool::Orbit : Application::Tool::PaintWeights; if (!paintTool) { app.meshRenderer.shadeMode = MeshRenderer::ShadeMode::BoneWeights; app.meshRenderer.heatBone = b.bone; } }
+    SectionLabel("Bone :");
+    if (b.bone < 0 || size_t(b.bone) >= rig.skeleton.bones.size()) b.bone = std::min<int>(1, int(rig.skeleton.bones.size()) - 1);
+    ImGui::SetNextItemWidth(-1);
+    if (ImGui::BeginCombo("##pbone", rig.skeleton.bones[size_t(b.bone)].name.c_str())) {
+        for (size_t i = 0; i < rig.skeleton.bones.size(); ++i) if (ImGui::Selectable(rig.skeleton.bones[i].name.c_str(), int(i) == b.bone)) { b.bone = int(i); app.meshRenderer.heatBone = b.bone; app.meshRenderer.shadeMode = MeshRenderer::ShadeMode::BoneWeights; }
+        ImGui::EndCombo();
+    }
+    SectionLabel("Brush :");
+    int mode = int(b.mode);
+    const char* modes[] = {"Add", "Subtract", "Replace", "Smooth"};
+    float bw = (ImGui::GetContentRegionAvail().x - 12 * S()) / 4.0f;
+    for (int i = 0; i < 4; ++i) { if (i) ImGui::SameLine(); bool on = mode == i; if (on) { ImGui::PushStyleColor(ImGuiCol_Button, kAccent); ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.06f, 0.08f, 0.02f, 1)); } if (ImGui::Button(modes[i], ImVec2(bw, 26 * S()))) b.mode = WeightBrushMode(i); if (on) ImGui::PopStyleColor(2); }
+    glm::vec3 e = rig.mesh.boundsMax() - rig.mesh.boundsMin();
+    ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##rad", &b.radius, 0.005f * e.y, 0.5f * e.y, "Radius  %.3f", ImGuiSliderFlags_Logarithmic);
+    ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##str", &b.strength, 0.01f, 1.0f, "Strength  %.2f");
+    if (b.mode == WeightBrushMode::Replace) { ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##val", &b.value, 0.0f, 1.0f, "Target weight  %.2f"); }
+    ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##fall", &b.falloff, 0.0f, 1.0f, "Falloff  %.2f");
+    ImGui::Checkbox("Symmetric (X mirror)", &b.symmetric); ImGui::SameLine(); ImGui::Checkbox("Front faces only", &b.frontFacingOnly);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Skip vertices facing away from the camera so a stroke on the cheek doesn't paint the back of the head.");
+    SectionLabel("Mirror :");
+    { float w = (ImGui::GetContentRegionAvail().x - 8 * S()) / 2.0f;
+      if (WideButton(ICON_MD_FLIP "  L  ->  R", ImVec2(w, 28 * S()))) { app.pushUndo("mirror weights L->R"); int n = mirrorWeights(rig, true, app.mirrorMap); app.reuploadWeights(); app.status = "Mirrored " + std::to_string(n) + " vertices (model's left, +x, onto the right)"; }
+      ImGui::SameLine();
+      if (WideButton(ICON_MD_FLIP "  R  ->  L", ImVec2(w, 28 * S()))) { app.pushUndo("mirror weights R->L"); int n = mirrorWeights(rig, false, app.mirrorMap); app.reuploadWeights(); app.status = "Mirrored " + std::to_string(n) + " vertices (model's right, -x, onto the left)"; }
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Copies weights across x = 0 (nearest mirrored vertex), swapping L/R bones (EyeL <-> EyeR).");
+    if (WideButton("Normalise / clean weights", ImVec2(-1, 26 * S()))) { app.pushUndo("clean weights"); cleanWeights(rig); app.reuploadWeights(); app.status = "Weights normalised"; }
+    size_t paired = 0; for (int q : app.mirrorMap.partner) paired += q >= 0;
+    ImGui::TextColored(kTextDim, "%zu / %zu vertices have a mirror partner", paired, rig.mesh.vertexCount());
+    ImGui::TextWrapped("Heat map = weight of the selected bone only (a symmetric stroke on the partner bone shows when you select it). Drag to paint; [ ] change the radius; Ctrl+Z undoes a whole stroke.");
+}
+
+// ---- corrective / combination shapes tab
+void correctiveEditor(Application& app) {
+    Rig& rig = app.pipe.rig;
+    ImGui::TextWrapped("A corrective fires automatically when two shapes are both on (weight = A x B). Use it to fix volume loss, e.g. JawOpen + MouthPucker.");
+    auto shapeCombo = [&](const char* id, int& sel) {
+        sel = std::clamp(sel, 0, int(rig.blendShapes.size()) - 1);
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::BeginCombo(id, rig.blendShapes[size_t(sel)].name.c_str())) { for (size_t i = 0; i < rig.blendShapes.size(); ++i) if (ImGui::Selectable(rig.blendShapes[i].name.c_str(), int(i) == sel)) sel = int(i); ImGui::EndCombo(); }
+    };
+    if (rig.blendShapes.size() < 2) { ImGui::TextColored(kWarn, "Need at least two blendshapes."); return; }
+    SectionLabel("Drivers :");
+    if (ui.corrB == 0 && ui.corrA == 0) { ui.corrA = std::max(0, rig.findBlendShape(shapes::JawOpen)); ui.corrB = std::max(0, rig.findBlendShape(shapes::MouthPucker)); }
+    shapeCombo("##corrA", ui.corrA); shapeCombo("##corrB", ui.corrB);
+    const std::string nameA = rig.blendShapes[size_t(ui.corrA)].name, nameB = rig.blendShapes[size_t(ui.corrB)].name;
+    if (WideButton("1. Pose both drivers at 1.0", ImVec2(-1, 26 * S()), ui.corrA != ui.corrB)) { app.pushUndo("pose drivers"); rig.resetPose(); rig.setBlendWeight(ui.corrA, 1.0f); rig.setBlendWeight(ui.corrB, 1.0f); rig.applyCombinations(); rig.syncControlPointsFromRig(); app.playing = false; }
+    ImGui::TextWrapped("2. Fix the shape with free-form handles (Handles tab, tool W/E) or other shape sliders.");
+    std::string autoName = nameA + "_" + nameB;
+    if (WideButton(("3. Bake corrective '" + autoName + "'").c_str(), ImVec2(-1, 26 * S()), ui.corrA != ui.corrB)) {
+        app.pushUndo("bake corrective");
+        int idx = bakeCorrectiveShape(rig, nameA, nameB, autoName, &app.mirrorMap);
+        if (idx >= 0) { app.reuploadMesh(); app.status = "Corrective '" + autoName + "' baked (" + std::to_string(rig.blendShapes[size_t(idx)].indices.size()) + " vertices) - fires at " + nameA + " x " + nameB; }
+        else { app.status = "Nothing to bake: move a handle or another shape first"; app.undo(); }
+    }
+    SectionLabel("Active correctives :");
+    if (rig.combinations.empty()) ImGui::TextColored(kTextDim, "none");
+    int remove = -1;
+    for (size_t i = 0; i < rig.combinations.size(); ++i) {
+        auto& c = rig.combinations[i]; ImGui::PushID(int(i) + 5000);
+        int s = rig.findBlendShape(c.shape);
+        ImGui::TextColored(kText, "%s", c.shape.c_str()); ImGui::SameLine(); ImGui::TextColored(kTextDim, "= %s x %s", c.driverA.c_str(), c.driverB.c_str());
+        ImGui::SetNextItemWidth(90 * S()); ImGui::SliderFloat("##gain", &c.gain, 0.0f, 2.0f, "gain %.2f"); ImGui::SameLine();
+        ImGui::Checkbox("min", &c.useMin); if (ImGui::IsItemHovered()) ImGui::SetTooltip("Drive by min(A, B) instead of A x B (fires earlier)."); ImGui::SameLine();
+        if (s >= 0) ImGui::TextColored(kAccent, "w %.2f", rig.blendShapes[size_t(s)].weight);
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - 18 * S()); if (IconButton(ICON_MD_CLOSE, false, "Remove corrective (keeps the shape)", ui.fonts, 20.0f)) remove = int(i);
+        ImGui::PopID();
+    }
+    if (remove >= 0) { app.pushUndo("remove corrective"); rig.combinations.erase(rig.combinations.begin() + remove); }
+    rig.applyCombinations();
 }
 
 void pageRig(Application& app) {
     Rig& rig = app.pipe.rig;
     if (rig.skeleton.bones.empty()) {
         ImGui::TextWrapped("The face is not rigged yet. Check the orientation in step 2, then press Rig Face.");
-        if (PrimaryButton("Rig Face", ImVec2(-1, 36 * S()))) { app.pushUndo(); app.pipe.buildDefaultRig(); app.reuploadMesh(); ui.stepDone[StepCheck] = ui.stepDone[StepRig] = true; }
+        if (PrimaryButton("Rig Face", ImVec2(-1, 36 * S()))) { app.pushUndo("rig face"); app.pipe.buildDefaultRig(); app.reuploadMesh(); ui.stepDone[StepCheck] = ui.stepDone[StepRig] = true; }
         return;
     }
     auto parts = rig.detectParts();
@@ -364,13 +460,16 @@ void pageRig(Application& app) {
         std::string s; if (parts.teethLower >= 0) s += "lower teeth/gums/tongue -> Jaw  "; if (parts.browL >= 0) s += "brows  "; if (parts.eyeL >= 0) s += "eyes";
         ImGui::TextWrapped("%s", s.c_str());
     } else ImGui::TextColored(kWarn, "Single surface: jaw skinned by height falloff.");
-    if (WideButton("Rebuild default face rig", ImVec2(-1, 28 * S()))) { app.pushUndo(); app.pipe.buildDefaultRig(); app.reuploadMesh(); app.status = "Rebuilt default rig"; }
+    if (WideButton("Rebuild default face rig", ImVec2(-1, 28 * S()))) { app.pushUndo("rebuild rig"); app.pipe.buildDefaultRig(); app.reuploadMesh(); app.status = "Rebuilt default rig"; }
     ImGui::SameLine(0, 0);
     ImGui::Checkbox("Skin first", &rig.skinFirst);
 
-    if (ImGui::BeginTabBar("rigtabs")) {
-        if (ImGui::BeginTabItem("Handles")) { controlPointEditor(app); ImGui::EndTabItem(); }
-        if (ImGui::BeginTabItem("Blendshapes")) {
+    if (ImGui::BeginTabBar("rigtabs", ImGuiTabBarFlags_FittingPolicyScroll | ImGuiTabBarFlags_TabListPopupButton)) {
+        auto flag = [&](int i) { return ui.rigTabRequest == i ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None; };
+        if (ImGui::BeginTabItem("Handles", nullptr, flag(0))) { controlPointEditor(app); ImGui::EndTabItem(); }
+        if (ImGui::BeginTabItem("Weights", nullptr, flag(1))) { weightPaintEditor(app); ImGui::EndTabItem(); }
+        if (ImGui::BeginTabItem("Correctives", nullptr, flag(2))) { correctiveEditor(app); ImGui::EndTabItem(); }
+        if (ImGui::BeginTabItem("Blendshapes", nullptr, flag(3))) {
             static char filter[64] = "";
             ImGui::SetNextItemWidth(-1); ImGui::InputTextWithHint("##filter", "filter (e.g. mouth, brow)", filter, sizeof filter);
             ImGui::BeginChild("bs", ImVec2(0, 300 * S()));
@@ -389,10 +488,10 @@ void pageRig(Application& app) {
                 ImGui::PopID();
             }
             ImGui::EndChild();
-            if (WideButton("Reset all weights", ImVec2(-1, 26 * S()))) { app.pushUndo(); rig.resetPose(); }
+            if (WideButton("Reset all weights", ImVec2(-1, 26 * S()))) { app.pushUndo("reset weights"); rig.resetPose(); }
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Bones")) {
+        if (ImGui::BeginTabItem("Bones", nullptr, flag(4))) {
             for (size_t i = 0; i < rig.skeleton.bones.size(); ++i) {
                 Bone& b = rig.skeleton.bones[i]; ImGui::PushID(int(i) + 1000);
                 glm::vec3 e = glm::degrees(glm::eulerAngles(b.poseRotation));
@@ -413,7 +512,7 @@ void pageRig(Application& app) {
             ImGui::SetNextItemWidth(-1); ImGui::Combo("##emo", &ui.emotionSel, names.data(), int(names.size()));
             ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##emoAmt", &ui.emotionAmt, 0.0f, 1.0f, "Amount  %.2f");
             if (WideButton(ICON_MD_MOOD "  Apply to pose", ImVec2(-1, 28 * S()))) {
-                app.pushUndo(); const ExpressionPreset& e = kExpressionPresets[ui.emotionSel]; const float a = ui.emotionAmt;
+                app.pushUndo("apply expression"); const ExpressionPreset& e = kExpressionPresets[ui.emotionSel]; const float a = ui.emotionAmt;
                 auto set = [&](const char* n, float v) { rig.setBlendWeight(n, v * a); };
                 set(shapes::MouthSmile, e.smile); set(shapes::MouthFrown, e.frown); set(shapes::BrowRaise, e.browRaise); set(shapes::BrowDown, e.browDown);
                 set(shapes::EyeWide, e.eyeWide); set(shapes::JawOpen, e.jaw); set(shapes::LipsPress, e.lipsPress); set(shapes::MouthPucker, e.pucker);
@@ -450,7 +549,7 @@ void pageRig(Application& app) {
             }
             ImGui::EndTabItem();
         }
-        ImGui::EndTabBar();
+        ImGui::EndTabBar(); ui.rigTabRequest = -1;
     }
     ImGui::Dummy(ImVec2(0, 4 * S()));
     if (PrimaryButton("Next: Lip-sync", ImVec2(-1, 34 * S()))) { ui.stepDone[StepRig] = true; ui.step = StepLipSync; }
@@ -573,7 +672,7 @@ void pageAnim(Application& app) {
         float bw = (ImGui::GetContentRegionAvail().x - 8 * S()) / 2.0f;
         if (WideButton(ICON_MD_FILE_UPLOAD "  Import", ImVec2(bw, 28 * S())) || ui.showImportClip) {
             ui.showImportClip = false; std::vector<AnimationClip> in; std::string err;
-            if (loadClipsJson(ui.clipBuf, in, &err) && !in.empty()) { app.pushUndo(); p.clip = in[0]; app.playTime = 0; app.playing = true; p.clip.applyTo(p.rig, 0); app.status = "Imported clip '" + p.clip.name + "' (" + std::to_string(in.size()) + " in file)"; ui.stepDone[StepLipSync] = true; }
+            if (loadClipsJson(ui.clipBuf, in, &err) && !in.empty()) { app.pushUndo("import clip"); p.clip = in[0]; app.playTime = 0; app.playing = true; p.clip.applyTo(p.rig, 0); app.status = "Imported clip '" + p.clip.name + "' (" + std::to_string(in.size()) + " in file)"; ui.stepDone[StepLipSync] = true; }
             else app.status = "Import failed: " + (err.empty() ? std::string("no clips in file") : err);
         }
         ImGui::SameLine();
@@ -607,7 +706,7 @@ float tlHeight() { return 262 * S(); }
 
 void rangeApply(Application& app, const char* what, const std::function<void(Curve<float>&, size_t)>& fn) {
     Pipeline& p = app.pipe; if (p.clip.duration <= 0) return;
-    app.pushUndo();
+    app.pushUndo(what);
     float a = ui.selA >= 0 ? std::min(ui.selA, ui.selB) : 0.0f, b = ui.selA >= 0 ? std::max(ui.selA, ui.selB) : p.clip.duration;
     int n = 0;
     for (size_t ci = 0; ci < p.clip.blendCurves.size(); ++ci) {
@@ -758,7 +857,7 @@ void draw(Application& app, float x0, float x1, float yTop, float yBot) {
         ui.tlPainting = false;
         if (io.KeyShift) { ui.selA = ui.selB = xt(io.MousePos.x); }
         else if (inCurve && !clip.blendCurves.empty() && !io.KeyAlt) {
-            app.pushUndo(); ui.tlPainting = true; ui.tlLastT = xt(io.MousePos.x); ui.tlLastV = std::clamp((cy1 - io.MousePos.y) / (curveH - 2 * S()), 0.0f, 1.0f);
+            app.pushUndo("paint curve"); ui.tlPainting = true; ui.tlLastT = xt(io.MousePos.x); ui.tlLastV = std::clamp((cy1 - io.MousePos.y) / (curveH - 2 * S()), 0.0f, 1.0f);
             app.playing = false;
         } else { ui.selA = ui.selB = -1; app.playing = false; }
     }
@@ -863,6 +962,7 @@ void viewportOverlay(Application& app) {
     if (iconBtn(ICON_MD_3D_ROTATION, app.tool == Application::Tool::Orbit, "Orbit (Q)")) app.tool = Application::Tool::Orbit;
     if (iconBtn(ICON_MD_ADD_LOCATION_ALT, app.tool == Application::Tool::AddPoint, "Add control point (W)")) app.tool = Application::Tool::AddPoint;
     if (iconBtn(ICON_MD_OPEN_WITH, app.tool == Application::Tool::MovePoint, "Move control point (E)")) app.tool = Application::Tool::MovePoint;
+    if (iconBtn(ICON_MD_BRUSH, app.tool == Application::Tool::PaintWeights, "Paint skin weights (R)  [ ] = radius")) { app.tool = Application::Tool::PaintWeights; app.meshRenderer.shadeMode = MeshRenderer::ShadeMode::BoneWeights; app.meshRenderer.heatBone = app.brush.bone; }
     ImGui::Dummy(ImVec2(0, 6 * S()));
     if (iconBtn(ICON_MD_GRID_ON, app.meshRenderer.wireframe, "Wireframe")) app.meshRenderer.wireframe = !app.meshRenderer.wireframe;
     { using SM = MeshRenderer::ShadeMode; auto& sm = app.meshRenderer.shadeMode;
@@ -872,8 +972,8 @@ void viewportOverlay(Application& app) {
     if (iconBtn(ICON_MD_HIGHLIGHT_ALT, app.showPoints, "Show control points")) app.showPoints = !app.showPoints;
     if (iconBtn(ICON_MD_LABEL, app.showLabels, "Show labels")) app.showLabels = !app.showLabels;
     ImGui::Dummy(ImVec2(0, 6 * S()));
-    if (iconBtn(ICON_MD_UNDO, false, "Undo (Ctrl+Z)")) app.undo();
-    if (iconBtn(ICON_MD_REDO, false, "Redo (Ctrl+Y)")) app.redo();
+    { std::string t = std::string("Undo ") + app.undoLabel() + " (Ctrl+Z)"; if (iconBtn(ICON_MD_UNDO, false, t.c_str())) app.undo(); }
+    { std::string t = std::string("Redo ") + app.redoLabel() + " (Ctrl+Y)"; if (iconBtn(ICON_MD_REDO, false, t.c_str())) app.redo(); }
     ImGui::Dummy(ImVec2(0, 6 * S()));
     if (iconBtn(ICON_MD_CENTER_FOCUS_STRONG, false, "Frame the face")) { app.camera.target = 0.5f * (r.mesh.boundsMin() + r.mesh.boundsMax()); app.camera.distance = 2.2f * glm::length(e); app.camera.yaw = app.camera.pitch = 0; }
     ImGui::End();
@@ -883,6 +983,9 @@ void viewportOverlay(Application& app) {
         ImVec2 sp(x0 + 14 * S(), vp->WorkPos.y + vp->WorkSize.y - 22 * S() - lift);
         dl->AddText(ui.fonts.small, ui.fonts.small->FontSize, sp, ImGui::ColorConvertFloat4ToU32(kAccent), app.status.c_str());
     }
+    int rigTabRequest = -1;
+    // bake / correctives
+    char bakeName[64] = "Custom"; bool bakeResidual = true, bakeSplit = false; int corrA = 0, corrB = 0;
     // timeline editor across the viewport bottom on the animation step; compact bar elsewhere
     if (app.pipe.clip.duration > 0 && ui.step == StepAnim && ui.timelineOpen) {
         timeline::draw(app, x0, x1, vp->WorkPos.y + vp->WorkSize.y - timeline::tlHeight(), vp->WorkPos.y + vp->WorkSize.y);
@@ -912,6 +1015,7 @@ void notifyModelLoaded(bool ok) { ui.stepDone[StepLoad] = ok; ui.stepDone[StepRi
 void notifyRigBuilt() { ui.stepDone[StepCheck] = ui.stepDone[StepRig] = true; if (ui.step < StepRig) ui.step = StepRig; }
 void notifyClipGenerated() { ui.stepDone[StepLipSync] = true; if (ui.step < StepAnim) ui.step = StepAnim; }
 void setStep(int step) { ui.step = std::clamp(step, 0, StepCount - 1); }
+void setRigTab(int tab) { ui.rigTabRequest = tab; }
 bool viewportContains(float x, float y) {
     ImGuiViewport* vp = ImGui::GetMainViewport();
     return x >= vp->WorkPos.x + kLeftWidth * S() && x <= vp->WorkPos.x + vp->WorkSize.x - kRightWidth * S() && y >= vp->WorkPos.y;

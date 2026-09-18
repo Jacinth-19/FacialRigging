@@ -6,7 +6,7 @@ ICONS = ["face", "person", "accessibility_new", "straighten", "record_voice_over
          "mic", "mic_off", "graphic_eq", "play_arrow", "pause", "stop", "skip_previous", "skip_next", "loop", "folder_open", "file_download", "save", "ios_share",
          "3d_rotation", "add_location_alt", "open_with", "grid_on", "visibility", "visibility_off", "label", "label_off",
          "center_focus_strong", "flip", "rotate_left", "rotate_right", "swap_vert", "auto_fix_high", "autorenew",
-         "undo", "redo", "restart_alt", "tune", "circle", "warning", "error", "info", "refresh", "close", "menu",
+         "undo", "redo", "brush", "flip", "save_alt", "restart_alt", "tune", "circle", "warning", "error", "info", "refresh", "close", "menu",
          "psychology", "rule", "sensors", "animation", "face_retouching_natural", "vertical_align_center", "highlight_alt", "front_hand", "sync", "mood", "remove_red_eye", "gradient", "file_upload", "thermostat"]
 def main(src, dst):
     cp = json.load(open(src))

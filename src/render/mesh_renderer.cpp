@@ -63,6 +63,17 @@ void MeshRenderer::upload(const Rig& rig) {
     cpuPos_ = m.positions; cpuNrm_ = m.normals;
 }
 
+void MeshRenderer::uploadWeights(const Rig& rig) {
+    const Mesh& m = rig.mesh;
+    if (!vboBone_ || !vboWeight_ || int(m.vertexCount()) != vertexCount_) { upload(rig); return; }
+    std::vector<glm::ivec4> bones(m.vertexCount(), glm::ivec4(0));
+    std::vector<glm::vec4> weights(m.vertexCount(), glm::vec4(1, 0, 0, 0));
+    if (rig.hasSkin()) for (size_t i = 0; i < m.vertexCount(); ++i) { bones[i] = rig.skin[i].bones; weights[i] = rig.skin[i].weights; }
+    glBindBuffer(GL_ARRAY_BUFFER, vboBone_); glBufferSubData(GL_ARRAY_BUFFER, 0, GLsizeiptr(bones.size() * sizeof(glm::ivec4)), bones.data());
+    glBindBuffer(GL_ARRAY_BUFFER, vboWeight_); glBufferSubData(GL_ARRAY_BUFFER, 0, GLsizeiptr(weights.size() * sizeof(glm::vec4)), weights.data());
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+
 void MeshRenderer::draw(const Rig& rig, const glm::mat4& view, const glm::mat4& proj, const glm::vec3& camPos) {
     if (!vao_) return;
     bool anyFreeForm = false;

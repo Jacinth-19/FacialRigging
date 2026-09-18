@@ -16,6 +16,7 @@ public:
     ~MeshRenderer();
     bool init(const std::string& shaderDir, std::string* log);
     void upload(const Rig& rig);                        ///< (re)upload geometry/skin/shapes
+    void uploadWeights(const Rig& rig);                 ///< skin bones/weights only (weight painting)
     void draw(const Rig& rig, const glm::mat4& view, const glm::mat4& proj, const glm::vec3& camPos);
     bool wireframe = false;
     enum class ShadeMode { Lit = 0, Normals, BoneWeights, ShapeInfluence, Displacement };

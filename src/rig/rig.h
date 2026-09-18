@@ -67,6 +67,16 @@ struct ControlPoint {
     glm::vec3 currentPosition() const { return restPosition + offset; }
 };
 
+// ------------------------------------------------------------------ corrective shapes
+/// A blendshape driven automatically by the product (or min) of two other shapes' weights - the
+/// standard fix for volume loss when e.g. JawOpen and MouthPucker are both on.
+struct CombinationShape {
+    std::string shape;               ///< corrective blendshape name (exists in Rig::blendShapes)
+    std::string driverA, driverB;
+    float gain = 1.0f;
+    bool useMin = false;
+};
+
 // ------------------------------------------------------------------ rig
 /// Face rig combining linear-blend skinning, blendshapes and free-form (RBF) control points.
 /// Evaluation order: skin -> blendshapes -> free-form handles.
@@ -77,6 +87,7 @@ public:
     std::vector<VertexInfluence> skin;   ///< size == mesh.vertexCount() when skinning is used
     std::vector<BlendShape> blendShapes;
     std::vector<ControlPoint> controlPoints;
+    std::vector<CombinationShape> combinations;   ///< corrective shapes, re-evaluated by applyCombinations()
     bool skinFirst = true;               ///< skin then morph (default) vs morph then skin
 
     void setMesh(const Mesh& m);
@@ -89,6 +100,11 @@ public:
     std::vector<float> blendWeights() const;
     void setBlendWeights(const std::vector<float>& w);
     void resetPose();                    ///< zero weights, identity bone poses, zero CP offsets
+    /// Sets every corrective's weight from its drivers (called by setBlendWeights / clip playback;
+    /// call it yourself after poking individual weights). Returns the number of correctives updated.
+    int applyCombinations();
+    static float combinationWeight(const CombinationShape& c, float wA, float wB);
+    int findCombination(const std::string& shape) const;
 
     // control points ------------------------------------------------------
     int addControlPoint(const glm::vec3& surfacePoint, const std::string& name = "");
